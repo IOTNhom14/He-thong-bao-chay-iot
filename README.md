@@ -162,3 +162,109 @@ Hệ thống áp dụng cơ chế xác thực bảo mật đa lớp (sử dụng
   "message": "Executed MUTE_BUZZER"
 }
 ```
+
+---
+
+## 4. Hướng dẫn cài đặt và khởi chạy hệ thống (Quickstart)
+
+### 4.1. Yêu cầu môi trường
+- Đã cài đặt **Docker** và **Docker Compose**.
+- Đã cài đặt **Python 3.10+** (nếu muốn chạy các script kiểm thử độc lập).
+
+---
+
+### 4.2. Thiết lập cấu hình môi trường
+Sao chép tệp cấu hình mẫu và điền các thông số Supabase, Telegram Bot của bạn:
+
+```bash
+# 1. Sao chép tệp biến môi trường mẫu
+cp .env.example .env
+
+# 2. Mở file .env và cập nhật thông số của bạn:
+# - SUPABASE_URL: URL dự án Supabase (không kèm /rest/v1/)
+# - SUPABASE_SERVICE_ROLE_KEY: Khóa Service Role bí mật
+# - TELEGRAM_BOT_TOKEN: Token từ @BotFather
+# - TELEGRAM_CHAT_ID: Chat ID nhận cảnh báo từ @userinfobot
+```
+
+---
+
+### 4.3. Khởi chạy hệ thống bằng Docker Compose
+
+Toàn bộ dịch vụ (MQTT Broker Mosquitto và FastAPI Backend Worker) được đóng gói và khởi chạy tự động:
+
+```bash
+# Di chuyển vào thư mục deployment
+cd deployment
+
+# Khởi chạy các container ở chế độ chạy nền
+docker compose up -d
+```
+
+Kiểm tra trạng thái các dịch vụ đang chạy:
+```bash
+docker compose ps
+```
+
+Sau khi khởi chạy thành công:
+- **Tài liệu API Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Kiểm tra trạng thái hệ thống (Health Check):** [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
+- **Cổng kết nối MQTT Broker:** `localhost:1883`
+
+---
+
+### 4.4. Kiểm tra và Chạy thử nghiệm (Testing)
+
+#### (1) Kiểm tra kết nối Telegram Bot:
+Chạy script kiểm tra trực tiếp (không yêu cầu cài thêm thư viện ngoài):
+```bash
+python3 tests/test_telegram.py
+```
+*(Hoặc chạy bên trong Docker Container)*:
+```bash
+docker compose exec backend python tests/test_telegram.py
+```
+
+#### (2) Giả lập thiết bị ESP32 gửi dữ liệu báo cháy qua MQTT:
+Gửi gói tin giả lập nồng độ khói 750 PPM, nhiệt độ 65°C và có lửa để kiểm thử Rule Engine và kích hoạt cảnh báo Telegram tự động:
+```bash
+docker compose exec backend python -c "
+import json, time, paho.mqtt.client as mqtt
+
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id='Simulated_ESP32')
+client.connect('mosquitto', 1883, 60)
+client.loop_start()
+time.sleep(0.5)
+
+topic = 'fire_alert/devices/ESP32_FIRE_001/telemetry'
+payload = {
+    'device_id': 'ESP32_FIRE_001',
+    'timestamp': int(time.time()),
+    'gas_ppm': 750.5,
+    'temperature': 65.0,
+    'humidity': 45.0,
+    'flame_detected': True,
+    'local_alarm': True,
+    'is_muted': False
+}
+
+client.publish(topic, json.dumps(payload), qos=1)
+print('[SUCCESS] Đã gửi gói tin telemetry báo cháy giả lập qua MQTT!')
+time.sleep(1)
+client.loop_stop()
+"
+```
+
+Xem log hoạt động thời gian thực của Backend:
+```bash
+docker compose logs -f backend
+```
+
+---
+
+### 4.5. Dừng hệ thống
+Khi muốn tắt toàn bộ các container và dịch vụ nền:
+```bash
+cd deployment
+docker compose down
+```
