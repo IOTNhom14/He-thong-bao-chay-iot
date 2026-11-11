@@ -100,3 +100,15 @@ deployment/mosquitto/data/
 deployment/mosquitto/log/
 *.sqlite3
 *.db
+
+# ==========================================
+# Agent & Tooling Artifacts
+# ==========================================
+.agents/
+graphify-out/
+skills/
+skills-lock.json
+antislop.md
+DESIGN.md
+GEMINI.md
+test_camera_snapshot.jpg

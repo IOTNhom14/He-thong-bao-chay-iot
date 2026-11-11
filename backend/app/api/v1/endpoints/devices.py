@@ -32,6 +32,7 @@ def register_device(
             "location": payload.location,
             "auth_token": auth_token,
             "status": "REGISTERED",
+            "camera_url": getattr(payload, "camera_url", None),
             "assigned_user_id": payload.assigned_user_id
         }).execute()
 

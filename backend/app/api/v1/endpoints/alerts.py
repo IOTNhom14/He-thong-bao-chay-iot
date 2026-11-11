@@ -36,3 +36,38 @@ def acknowledge_alert(
 
     write_audit_log(current_user["id"], f"ACK_ALERT:{alert_id}", request)
     return res.data[0]
+
+@router.post("/test-camera", summary="Kiểm tra kết nối và gửi thử ảnh chụp từ Camera IP/Điện thoại")
+def test_camera_alert(
+    request: Request,
+    current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR"]))
+):
+    from app.services.notification import capture_camera_snapshot, send_alert_notification
+    from app.core.config import settings
+
+    snapshot = capture_camera_snapshot(settings.CAMERA_SNAPSHOT_URL)
+    if not snapshot:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Không thể kết nối hoặc lấy ảnh từ camera ({settings.CAMERA_SNAPSHOT_URL}). Hãy kiểm tra xem app IP Webcam trên điện thoại còn đang bật không."
+        )
+
+    test_msg = (
+        "<b>[HỆ THỐNG BÁO CHÁY IOT] THỬ NGHIỆM TÍCH HỢP CAMERA</b>\n"
+        f"- Nguồn Camera: <code>{settings.CAMERA_SNAPSHOT_URL}</code>\n"
+        f"- Dung lượng ảnh: <b>{len(snapshot):,} bytes</b>\n"
+        f"- Người thực hiện: <b>{current_user.get('email', 'Admin')}</b>\n"
+        f"- Thời gian: <code>{datetime.now().strftime('%H:%M:%S %d/%m/%Y')}</code>\n"
+        "<i>Hệ thống giám sát hình ảnh thời gian thực đã hoạt động bình thường!</i>"
+    )
+
+    send_alert_notification(test_msg, camera_url=settings.CAMERA_SNAPSHOT_URL, attach_photo=True)
+    write_audit_log(current_user["id"], "TEST_CAMERA_SNAPSHOT", request)
+
+    return {
+        "status": "success",
+        "camera_url": settings.CAMERA_SNAPSHOT_URL,
+        "image_size_bytes": len(snapshot),
+        "message": "Đã chụp ảnh thành công từ điện thoại và gửi tới Telegram!"
+    }
+

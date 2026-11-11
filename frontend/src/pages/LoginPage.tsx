@@ -1,70 +1,103 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth, DEMO_CREDENTIALS } from '../context/AuthContext';
-import { Flame, Shield, Lock, Mail, AlertCircle, ArrowRight } from 'lucide-react';
+import { Flame, Lock, Mail, ArrowRight, Shield, AlertCircle, ShieldAlert } from 'lucide-react';
 import type { UserRole } from '../api/auth.api';
 
 export const LoginPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { login, isLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const { login, isLoading } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const searchParams = new URLSearchParams(location.search);
+  const reason = searchParams.get('reason');
+  const redirectTarget = searchParams.get('redirect') || '/';
+
+  const navigateAfterLogin = (role?: UserRole) => {
+    // Nếu có redirect đích tới /admin và người dùng đăng nhập tài khoản ADMIN:
+    if (redirectTarget === '/admin' && role === 'ADMIN') {
+      navigate('/admin', { replace: true });
+    } else {
+      navigate('/', { replace: true });
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     try {
       await login(email, password);
-      navigate('/', { replace: true });
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Đăng nhập không thành công, vui lòng kiểm tra lại');
+      const savedUser = localStorage.getItem('fire_alert_user');
+      const parsed = savedUser ? JSON.parse(savedUser) : null;
+      navigateAfterLogin(parsed?.role);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setErrorMsg(error.response?.data?.error || 'Đăng nhập không thành công');
     }
   };
 
   const handleQuickLogin = async (role: UserRole) => {
-    setErrorMsg(null);
     const cred = DEMO_CREDENTIALS[role];
-    setEmail(cred.email);
-    setPassword(cred.pass);
+    setErrorMsg(null);
     try {
       await login(cred.email, cred.pass);
-      navigate('/', { replace: true });
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Đăng nhập không thành công');
+      navigateAfterLogin(role);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setErrorMsg(error.response?.data?.error || 'Đăng nhập không thành công');
     }
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-gradient-to-br from-gray-950 via-[#0a0f1d] to-black relative overflow-hidden">
-      {/* Decorative ambient lights */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-red-600/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-amber-600/10 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="w-full max-w-md relative z-10 glass-panel rounded-3xl border border-gray-800 p-8 shadow-2xl">
-        {/* Logo & Tiêu đề */}
-        <div className="text-center mb-8">
-          <div className="inline-flex p-3 rounded-2xl bg-gradient-to-br from-red-500 to-amber-600 shadow-xl shadow-red-500/20 mb-3">
-            <Flame className="w-8 h-8 text-white animate-pulse" />
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#090a0f] text-zinc-100">
+      <div className="w-full max-w-md rounded-md border border-zinc-800 bg-[#111318] p-7 shadow-lg">
+        {/* Header trạm */}
+        <div className="text-center mb-6">
+          <div className="w-10 h-10 rounded bg-red-700 flex items-center justify-center text-white mx-auto mb-3 border border-red-600">
+            <Flame className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-2xl font-extrabold text-white tracking-tight">HỆ THỐNG BÁO CHÁY TỰ ĐỘNG</h1>
-          <p className="text-xs text-gray-400 mt-1">Đồ án PTIT IoT • Trung tâm Điều hành & Giám sát An toàn</p>
+          <h1 className="text-lg font-bold text-zinc-100 uppercase tracking-wide">
+            HỆ THỐNG BÁO CHÁY TỰ ĐỘNG
+          </h1>
+          <p className="text-xs text-zinc-400 mt-1 font-mono">
+            IoT TELEMETRY CONSOLE · TRẠM VẬN HÀNH PTIT
+          </p>
         </div>
 
-        {/* Thông báo lỗi nếu có */}
+        {/* Thông báo lỗi */}
         {errorMsg && (
-          <div className="mb-5 p-3 rounded-xl bg-red-950/60 border border-red-500/50 text-red-200 text-xs flex items-center gap-2.5">
+          <div className="mb-4 p-2.5 rounded bg-red-950/80 border border-red-700 text-red-200 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
 
+        {/* Cảnh báo an ninh khi bị đá văng từ phiên Operator / Viewer không đủ quyền */}
+        {reason === 'admin_required' && !errorMsg && (
+          <div className="mb-4 p-3 rounded bg-amber-950/80 border border-amber-600 text-amber-200 text-xs flex items-start gap-2.5">
+            <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold text-amber-300 uppercase tracking-wide">
+                Yêu cầu quyền Quản trị (ADMIN)
+              </div>
+              <div className="text-[11px] text-amber-200/90 mt-0.5 leading-relaxed">
+                Ca trực trước đó không có quyền truy cập <strong>Cấu hình Hệ thống</strong>. Phiên làm việc đã bị kết thúc theo chính sách bảo mật RBAC. Vui lòng đăng nhập bằng tài khoản <strong>Quản trị viên</strong> để tiếp tục.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Form đăng nhập */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>
-            <label className="text-xs font-semibold text-gray-300 block mb-1.5">Tên đăng nhập hoặc Email</label>
+            <label className="text-xs font-medium text-zinc-300 block mb-1">
+              Tên đăng nhập hoặc Email
+            </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+              <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-zinc-500">
                 <Mail className="w-4 h-4" />
               </div>
               <input
@@ -73,15 +106,17 @@ export const LoginPage: React.FC = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin hoặc admin@firealert.iot"
-                className="w-full bg-gray-900/90 border border-gray-700 rounded-xl pl-9 pr-3 py-2.5 text-sm text-white placeholder-gray-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:outline-none transition-all"
+                className="w-full bg-[#0c0e12] border border-zinc-800 rounded pl-8 pr-2.5 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:border-zinc-600 focus:outline-none transition-colors"
               />
             </div>
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-gray-300 block mb-1.5">Mật khẩu</label>
+            <label className="text-xs font-medium text-zinc-300 block mb-1">
+              Mật khẩu
+            </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+              <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-zinc-500">
                 <Lock className="w-4 h-4" />
               </div>
               <input
@@ -90,7 +125,7 @@ export const LoginPage: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-gray-900/90 border border-gray-700 rounded-xl pl-9 pr-3 py-2.5 text-sm text-white placeholder-gray-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:outline-none transition-all"
+                className="w-full bg-[#0c0e12] border border-zinc-800 rounded pl-8 pr-2.5 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:border-zinc-600 focus:outline-none transition-colors"
               />
             </div>
           </div>
@@ -98,21 +133,21 @@ export const LoginPage: React.FC = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold text-sm shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50"
+            className="w-full py-2 px-3 rounded bg-red-700 hover:bg-red-600 text-white font-semibold text-xs border border-red-600 flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
           >
-            <span>{isLoading ? 'Đang xác thực...' : 'Đăng nhập hệ thống'}</span>
-            <ArrowRight className="w-4 h-4" />
+            <span>{isLoading ? 'Đang xác thực...' : 'Đăng nhập ca trực'}</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </form>
 
-        {/* Nút bấm đăng nhập nhanh phục vụ chấm thi đồ án */}
-        <div className="mt-8 pt-6 border-t border-gray-800">
-          <div className="flex items-center gap-2 text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">
-            <Shield className="w-3.5 h-3.5 text-red-400" />
-            <span>Đăng nhập nhanh theo vai trò (Demo/Chấm điểm):</span>
+        {/* Đăng nhập nhanh phục vụ kiểm thử / demo */}
+        <div className="mt-6 pt-5 border-t border-zinc-800">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 mb-2.5 uppercase tracking-wider">
+            <Shield className="w-3.5 h-3.5 text-zinc-500" />
+            <span>Đăng nhập nhanh theo vai trò ca trực:</span>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {(['ADMIN', 'OPERATOR', 'VIEWER'] as UserRole[]).map((r) => {
               const cred = DEMO_CREDENTIALS[r];
               return (
@@ -120,15 +155,15 @@ export const LoginPage: React.FC = () => {
                   key={r}
                   type="button"
                   onClick={() => handleQuickLogin(r)}
-                  className="w-full text-left p-2.5 rounded-xl bg-gray-900/70 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 transition-all flex items-center justify-between group"
+                  className="w-full text-left p-2 rounded bg-[#0c0e12] hover:bg-zinc-800 border border-zinc-800/80 transition-colors flex items-center justify-between group"
                 >
                   <div>
-                    <div className="text-xs font-bold text-white group-hover:text-red-400 transition-colors">
+                    <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
                       {cred.title}
                     </div>
-                    <div className="text-[11px] text-gray-400">{cred.desc}</div>
+                    <div className="text-[11px] text-zinc-400">{cred.desc}</div>
                   </div>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
                     {r}
                   </span>
                 </button>

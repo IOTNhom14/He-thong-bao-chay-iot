@@ -122,7 +122,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {children}
 
       {/* Container hiển thị các Toast thông báo ở góc dưới bên phải */}
-      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none px-3 sm:px-0">
+      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-3 sm:px-0">
         {toasts.map((toast) => {
           const isSuccess = toast.type === 'success';
           const isError = toast.type === 'error';
@@ -132,39 +132,39 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return (
             <div
               key={toast.id}
-              className={`pointer-events-auto p-4 rounded-2xl border backdrop-blur-xl shadow-2xl transition-all duration-300 transform translate-y-0 flex items-start gap-3 animate-in fade-in slide-in-from-bottom-5 ${
+              className={`pointer-events-auto p-3 rounded border shadow-lg transition-all duration-200 flex items-start gap-2.5 ${
                 isSuccess
-                  ? 'bg-gray-900/95 border-emerald-500/50 text-emerald-200 ring-1 ring-emerald-500/30'
+                  ? 'bg-[#111318] border-zinc-800 border-l-4 border-l-emerald-500 text-zinc-200'
                   : isError
-                  ? 'bg-gray-900/95 border-red-500/60 text-red-200 ring-1 ring-red-500/30'
+                  ? 'bg-[#111318] border-zinc-800 border-l-4 border-l-red-500 text-zinc-200'
                   : isWarning
-                  ? 'bg-gray-900/95 border-amber-500/60 text-amber-200 ring-1 ring-amber-500/30'
+                  ? 'bg-[#111318] border-zinc-800 border-l-4 border-l-amber-500 text-zinc-200'
                   : isPending
-                  ? 'bg-gray-900/95 border-cyan-500/60 text-cyan-200 ring-1 ring-cyan-500/30'
-                  : 'bg-gray-900/95 border-gray-700 text-gray-200'
+                  ? 'bg-[#111318] border-zinc-800 border-l-4 border-l-sky-500 text-zinc-200'
+                  : 'bg-[#111318] border-zinc-800 border-l-4 border-l-zinc-500 text-zinc-200'
               }`}
             >
               {/* Icon */}
               <div className="flex-shrink-0 mt-0.5">
-                {isSuccess && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
-                {isError && <AlertCircle className="w-5 h-5 text-red-400" />}
-                {isWarning && <AlertTriangle className="w-5 h-5 text-amber-400" />}
-                {isPending && <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />}
-                {!isSuccess && !isError && !isWarning && !isPending && <Info className="w-5 h-5 text-blue-400" />}
+                {isSuccess && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                {isError && <AlertCircle className="w-4 h-4 text-red-400" />}
+                {isWarning && <AlertTriangle className="w-4 h-4 text-amber-400" />}
+                {isPending && <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />}
+                {!isSuccess && !isError && !isWarning && !isPending && <Info className="w-4 h-4 text-zinc-400" />}
               </div>
 
               {/* Nội dung */}
               <div className="flex-1 min-w-0">
-                <h4 className="text-xs font-bold text-white tracking-wide truncate">{toast.title}</h4>
-                {toast.message && <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">{toast.message}</p>}
+                <h4 className="text-xs font-bold text-zinc-100 tracking-wide font-mono truncate">{toast.title}</h4>
+                {toast.message && <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed font-sans">{toast.message}</p>}
               </div>
 
               {/* Nút đóng */}
               <button
                 onClick={() => removeToast(toast.id)}
-                className="flex-shrink-0 text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-800"
+                className="flex-shrink-0 text-zinc-500 hover:text-zinc-200 transition-colors p-0.5 rounded hover:bg-zinc-800"
               >
-                <X size={14} />
+                <X size={13} />
               </button>
             </div>
           );

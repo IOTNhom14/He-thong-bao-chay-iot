@@ -8,6 +8,8 @@ export interface DeviceItem {
   temp_threshold: number;
   gas_threshold: number;
   is_muted: boolean;
+  camera_url?: string | null;
+  camera_stream_url?: string | null;
   last_seen: string | null;
   created_at: string;
   updated_at: string;
@@ -54,6 +56,8 @@ export const DEFAULT_DEMO_DEVICES: DeviceItem[] = [
     temp_threshold: 55,
     gas_threshold: 400,
     is_muted: false,
+    camera_url: 'http://192.168.1.238:8080/shot.jpg',
+    camera_stream_url: 'http://192.168.1.238:8080/video',
     last_seen: new Date().toISOString(),
     created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
     updated_at: new Date().toISOString(),
@@ -72,6 +76,8 @@ export const DEFAULT_DEMO_DEVICES: DeviceItem[] = [
     temp_threshold: 60,
     gas_threshold: 450,
     is_muted: false,
+    camera_url: null,
+    camera_stream_url: null,
     last_seen: new Date().toISOString(),
     created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
     updated_at: new Date().toISOString(),
@@ -155,6 +161,7 @@ export const DeviceApi = {
     location: string;
     temp_threshold?: number;
     gas_threshold?: number;
+    camera_url?: string;
     status?: 'ONLINE' | 'OFFLINE';
   }): Promise<DeviceItem> {
     try {
@@ -164,6 +171,7 @@ export const DeviceApi = {
         location: data.location,
         smoke_threshold: data.gas_threshold ?? 400,
         temp_threshold: data.temp_threshold ?? 55,
+        camera_url: data.camera_url || null,
         assigned_user_id: null,
       };
       const res = await apiClient.post<any>('/devices', payload);
@@ -172,6 +180,12 @@ export const DeviceApi = {
         ...raw,
         id: raw.id || raw.device_id,
         gas_threshold: raw.gas_threshold ?? raw.smoke_threshold ?? 400,
+        camera_url: raw.camera_url || data.camera_url || null,
+        camera_stream_url: data.camera_url
+          ? data.camera_url.includes('/shot.jpg')
+            ? data.camera_url.replace('/shot.jpg', '/video')
+            : data.camera_url
+          : null,
       };
     } catch {
       return {
@@ -182,6 +196,12 @@ export const DeviceApi = {
         temp_threshold: data.temp_threshold ?? 55,
         gas_threshold: data.gas_threshold ?? 400,
         is_muted: false,
+        camera_url: data.camera_url || null,
+        camera_stream_url: data.camera_url
+          ? data.camera_url.includes('/shot.jpg')
+            ? data.camera_url.replace('/shot.jpg', '/video')
+            : data.camera_url
+          : null,
         last_seen: new Date().toISOString(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

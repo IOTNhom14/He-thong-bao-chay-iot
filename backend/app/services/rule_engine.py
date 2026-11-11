@@ -77,8 +77,25 @@ class FireRuleEngine:
                     "status": "TRIGGERED"
                 }).execute()
 
-                # 2. Bắn thông báo khẩn cấp tới người dùng
-                send_alert_notification(alert_msg)
-                print(f"[RULE ENGINE] Đã kích hoạt cảnh báo {alert_type} cho thiết bị {data.device_id}")
+                # 2. Bắn thông báo khẩn cấp tới người dùng kèm ảnh chụp từ Camera riêng của Node
+                node_cam_url = device.get("camera_url")
+                # Nếu là node ESP32_FIRE_001 (demo phòng khách) hoặc đã có camera_url -> lấy camera tương ứng
+                if not node_cam_url and data.device_id == "ESP32_FIRE_001":
+                    node_cam_url = settings.CAMERA_SNAPSHOT_URL
+
+                if node_cam_url:
+                    send_alert_notification(
+                        message=alert_msg,
+                        camera_url=node_cam_url,
+                        attach_photo=True
+                    )
+                    print(f"[RULE ENGINE] Đã kích hoạt cảnh báo {alert_type} cho thiết bị {data.device_id} (Kèm ảnh Camera riêng: {node_cam_url})")
+                else:
+                    # Nếu node này chưa lắp camera riêng, gửi cảnh báo text trung thực (không lấy nhầm ảnh của phòng khác!)
+                    send_alert_notification(
+                        message=alert_msg + "\n<i>(Lưu ý: Khu vực này chưa lắp đặt Camera xác minh hình ảnh)</i>",
+                        attach_photo=False
+                    )
+                    print(f"[RULE ENGINE] Đã kích hoạt cảnh báo {alert_type} cho thiết bị {data.device_id} (Node này chưa gán Camera)")
 
 rule_engine = FireRuleEngine()

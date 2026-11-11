@@ -44,6 +44,7 @@ interface DeviceState {
   handleStatus: (deviceId: string, status: 'ONLINE' | 'OFFLINE' | 'DECOMMISSIONED', reason?: string) => void;
   handleAck: (deviceId: string, ack: { command_id: string; status: 'SUCCESS' | 'FAILED'; message: string }) => void;
   clearAlarm: (deviceId: string) => void;
+  updateDeviceCamera: (deviceId: string, cameraUrl: string | null, cameraStreamUrl?: string | null) => void;
   reset: () => void;
 }
 
@@ -197,6 +198,25 @@ export const useDeviceStore = create<DeviceState>((set) => ({
         [deviceId]: null,
       },
     })),
+
+  updateDeviceCamera: (deviceId, cameraUrl, cameraStreamUrl) =>
+    set((state) => {
+      const dev = state.devices[deviceId];
+      if (!dev) return state;
+      const updatedDev: DeviceItem = {
+        ...dev,
+        camera_url: cameraUrl,
+        camera_stream_url:
+          cameraStreamUrl ??
+          (cameraUrl ? (cameraUrl.includes('/shot.jpg') ? cameraUrl.replace('/shot.jpg', '/video') : cameraUrl) : null),
+      };
+      return {
+        devices: {
+          ...state.devices,
+          [deviceId]: updatedDev,
+        },
+      };
+    }),
 
   reset: () =>
     set({

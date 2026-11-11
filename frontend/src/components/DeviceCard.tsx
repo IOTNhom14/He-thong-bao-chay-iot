@@ -40,20 +40,23 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
   const isAlarming = Boolean(device.latest_alarm);
   const isMuted = Boolean(device.is_muted);
 
-  // Kiểm tra ngưỡng cảnh báo
+  // Ngưỡng cảnh báo
   const isTempDanger = temp >= device.temp_threshold;
   const isTempWarning = !isTempDanger && temp >= device.temp_threshold - 5 && temp > 0;
 
   const isGasDanger = gas >= device.gas_threshold;
   const isGasWarning = !isGasDanger && gas >= device.gas_threshold - 50 && gas > 0;
 
-  // Cảnh báo khẩn cấp nếu có lửa, còi hú hoặc bất kỳ thông số nào vượt ngưỡng
+  // Cảnh báo khẩn cấp
   const isDanger = hasFlame || isAlarming || isTempDanger || isGasDanger;
-  const isWarning = isTempWarning || isGasWarning;
+  const isWarning = !isDanger && (isTempWarning || isGasWarning);
 
-  // Format thời điểm cập nhật cuối
+  // Tính tỷ lệ thanh đo
+  const tempRatio = Math.min(100, Math.max(0, (temp / Math.max(device.temp_threshold * 1.25, 60)) * 100));
+  const gasRatio = Math.min(100, Math.max(0, (gas / Math.max(device.gas_threshold * 1.25, 400)) * 100));
+
   const formatLastSeen = () => {
-    if (!device.latest_telemetry_time && !device.last_seen) return 'Chưa có dữ liệu';
+    if (!device.latest_telemetry_time && !device.last_seen) return 'Chưa có tin';
     const ts = device.latest_telemetry_time
       ? device.latest_telemetry_time * 1000
       : new Date(device.last_seen!).getTime();
@@ -81,253 +84,213 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
 
   return (
     <div
-      className={`rounded-3xl border transition-all duration-300 p-5 flex flex-col justify-between relative overflow-hidden backdrop-blur-xl ${
+      className={`rounded-md border p-4 flex flex-col justify-between relative transition-colors ${
         isDanger
-          ? 'border-red-500/80 bg-red-950/25 shadow-xl shadow-red-900/30 ring-1 ring-red-500/50'
+          ? 'border-red-600 bg-[#170e10]'
           : isWarning
-          ? 'border-amber-500/60 bg-amber-950/15 shadow-lg shadow-amber-900/20'
-          : 'border-gray-800 hover:border-gray-700 bg-gray-900/50 shadow-md'
+          ? 'border-amber-600/70 bg-[#15120a]'
+          : 'border-zinc-800 bg-[#111318] hover:border-zinc-700'
       }`}
     >
-      {/* Thanh viền trạng thái cảnh báo trên cùng */}
-      {isDanger && (
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-rose-500 to-amber-500 animate-pulse" />
-      )}
+      {/* Notch chỉ thị trên đỉnh thẻ khi có sự cố */}
+      {isDanger ? (
+        <div className="absolute top-0 left-0 right-0 h-1 bg-red-600" />
+      ) : isWarning ? (
+        <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500" />
+      ) : null}
 
-      {/* Badge hiển thị trạng thái đang chờ ACK */}
+      {/* Banner chờ phản hồi ACK */}
       {isWaitingAck && (
-        <div className="absolute top-0 right-0 left-0 bg-cyan-950/90 border-b border-cyan-500/40 text-cyan-300 px-3 py-1 text-[11px] font-bold flex items-center justify-center gap-1.5 z-10 animate-pulse">
-          <Loader2 size={12} className="animate-spin text-cyan-400" />
-          <span>Đang chờ phản hồi ACK từ thiết bị (tối đa 10s)...</span>
+        <div className="absolute top-0 right-0 left-0 bg-sky-950 border-b border-sky-500/40 text-sky-200 px-2 py-0.5 text-[11px] font-mono font-semibold flex items-center justify-center gap-1.5 z-10">
+          <Loader2 size={12} className="animate-spin text-sky-400" />
+          <span>Đang chờ ACK từ thiết bị...</span>
         </div>
       )}
 
       <div>
-        {/* Header card: Tên, Vị trí & Badge Online/Offline */}
-        <div className={`flex items-start justify-between gap-3 mb-3 ${isWaitingAck ? 'mt-4' : ''}`}>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-bold text-base text-white truncate tracking-wide" title={device.name}>
+        {/* Header: Tên vị trí, ID & Trạng thái kết nối */}
+        <div className={`flex items-start justify-between gap-2 pb-2.5 border-b border-zinc-800/80 ${isWaitingAck ? 'mt-4' : ''}`}>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <h3 className="font-semibold text-sm text-zinc-100 truncate" title={device.name}>
                 {device.name}
               </h3>
               {isMuted && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-500/40 font-medium flex items-center gap-1 shadow-sm">
-                  <VolumeX className="w-3 h-3 text-amber-400" /> Đã tắt còi
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-500/40 font-medium">
+                  MUTED
                 </span>
               )}
             </div>
-            <div className="text-xs text-gray-400 mt-1 flex items-center gap-1.5 truncate">
-              <MapPin className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+            <div className="text-xs text-zinc-400 flex items-center gap-1 mt-0.5 truncate">
+              <MapPin className="w-3 h-3 text-zinc-500 flex-shrink-0" />
               <span className="truncate">{device.location}</span>
             </div>
-            <div className="text-[11px] font-mono text-gray-500 mt-0.5">ID: {device.id}</div>
+            <div className="text-[11px] font-mono text-zinc-500 mt-0.5">ID: {device.id}</div>
           </div>
 
-          {/* Badge Online/Offline/Decommissioned */}
           <div className="flex-shrink-0">
             {isDecommissioned ? (
-              <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-gray-800 text-gray-400 border border-gray-700">
-                Đã thu hồi
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-zinc-900 text-zinc-500 border border-zinc-800">
+                THU HỒI
+              </span>
+            ) : isDanger ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-red-950 text-red-300 border border-red-600 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400" /> BÁO ĐỘNG
+              </span>
+            ) : isOnline ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-800/80 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> ONLINE
               </span>
             ) : (
-              <span
-                className={`text-xs px-2.5 py-1 rounded-full font-semibold flex items-center gap-1.5 border shadow-sm ${
-                  isOnline
-                    ? 'bg-emerald-950/90 text-emerald-400 border-emerald-500/50'
-                    : 'bg-rose-950/70 text-rose-300 border-rose-800/60'
-                }`}
-              >
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
-                  }`}
-                />
-                {isOnline ? 'TRỰC TUYẾN' : 'NGOẠI TUYẾN'}
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-zinc-900 text-zinc-400 border border-zinc-700 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" /> OFFLINE
               </span>
             )}
           </div>
         </div>
 
-        {/* Lưới 4 chỉ số cảm biến (Nhiệt độ, Khí Gas, Lửa, Còi báo) */}
-        <div className="grid grid-cols-2 gap-2.5 my-3">
+        {/* Thanh đo mức Gauge Telemetry */}
+        <div className="space-y-3 my-3">
           {/* 1. Nhiệt độ & Độ ẩm */}
-          <div
-            className={`p-3 rounded-2xl border transition-colors ${
-              isTempDanger
-                ? 'bg-red-950/60 border-red-500/60 text-red-200'
-                : isTempWarning
-                ? 'bg-amber-950/40 border-amber-500/40 text-amber-200'
-                : 'bg-gray-950/60 border-gray-800 text-gray-300'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] text-gray-400 font-medium">Nhiệt độ</span>
-              <div
-                className={`p-1.5 rounded-lg ${
-                  isTempDanger ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/10 text-amber-400'
-                }`}
-              >
-                <Thermometer className="w-4 h-4" />
+          <div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-zinc-400 flex items-center gap-1">
+                <Thermometer className="w-3.5 h-3.5 text-zinc-500" /> Nhiệt độ:
+              </span>
+              <div className="font-mono tabular-nums">
+                <span className={`font-bold text-sm ${isTempDanger ? 'text-red-400' : isTempWarning ? 'text-amber-400' : 'text-zinc-100'}`}>
+                  {temp > 0 ? `${temp.toFixed(1)}°C` : '--'}
+                </span>
+                <span className="text-zinc-500 text-[11px] ml-1">/ {device.temp_threshold}°C</span>
               </div>
             </div>
-            <div
-              className={`text-lg font-extrabold font-mono ${
-                isTempDanger ? 'text-red-400' : isTempWarning ? 'text-amber-400' : 'text-white'
-              }`}
-            >
-              {temp > 0 ? `${temp.toFixed(1)}°C` : '--'}
+            {/* Visual Level Bar */}
+            <div className="w-full h-1.5 bg-zinc-800 rounded-sm overflow-hidden mt-1.5">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  isTempDanger ? 'bg-red-500' : isTempWarning ? 'bg-amber-500' : 'bg-emerald-500'
+                }`}
+                style={{ width: `${tempRatio}%` }}
+              />
             </div>
-            <div className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
-              <Droplets className="w-3 h-3 text-cyan-400" />
-              <span>Độ ẩm: {humidity > 0 ? `${humidity.toFixed(0)}%` : '--'}</span>
+            <div className="flex items-center justify-between text-[11px] text-zinc-500 mt-1">
+              <span className="flex items-center gap-1">
+                <Droplets className="w-3 h-3 text-zinc-500" /> Độ ẩm: {humidity > 0 ? `${humidity.toFixed(0)}%` : '--'}
+              </span>
+              <span>Ngưỡng ngắt: {device.temp_threshold}°C</span>
             </div>
           </div>
 
-          {/* 2. Khí Gas (PPM) */}
-          <div
-            className={`p-3 rounded-2xl border transition-colors ${
-              isGasDanger
-                ? 'bg-red-950/60 border-red-500/60 text-red-200'
-                : isGasWarning
-                ? 'bg-amber-950/40 border-amber-500/40 text-amber-200'
-                : 'bg-gray-950/60 border-gray-800 text-gray-300'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] text-gray-400 font-medium">Khí Gas (PPM)</span>
-              <div
-                className={`p-1.5 rounded-lg ${
-                  isGasDanger ? 'bg-red-500/20 text-red-400' : 'bg-cyan-500/10 text-cyan-400'
-                }`}
-              >
-                <Wind className="w-4 h-4" />
+          {/* 2. Khí Gas (MQ-2) */}
+          <div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-zinc-400 flex items-center gap-1">
+                <Wind className="w-3.5 h-3.5 text-zinc-500" /> Khí Gas:
+              </span>
+              <div className="font-mono tabular-nums">
+                <span className={`font-bold text-sm ${isGasDanger ? 'text-red-400' : isGasWarning ? 'text-amber-400' : 'text-zinc-100'}`}>
+                  {gas > 0 ? `${gas.toFixed(0)}` : '--'}
+                </span>
+                <span className="text-zinc-500 text-[11px] ml-1">/ {device.gas_threshold} PPM</span>
               </div>
             </div>
-            <div
-              className={`text-lg font-extrabold font-mono ${
-                isGasDanger ? 'text-red-400' : isGasWarning ? 'text-amber-400' : 'text-white'
-              }`}
-            >
-              {gas > 0 ? `${gas.toFixed(1)}` : '--'}
+            {/* Visual Level Bar */}
+            <div className="w-full h-1.5 bg-zinc-800 rounded-sm overflow-hidden mt-1.5">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  isGasDanger ? 'bg-red-500' : isGasWarning ? 'bg-amber-500' : 'bg-sky-500'
+                }`}
+                style={{ width: `${gasRatio}%` }}
+              />
             </div>
-            <div className="text-[10px] text-gray-400 mt-0.5 truncate" title={`Ngưỡng: ${device.gas_threshold} ppm`}>
-              Ngưỡng: {device.gas_threshold} ppm
+            <div className="flex items-center justify-between text-[11px] text-zinc-500 mt-1">
+              <span>Nồng độ khí cháy</span>
+              <span>Ngưỡng: {device.gas_threshold} PPM</span>
             </div>
           </div>
 
-          {/* 3. Cảm biến lửa (Flame Sensor) */}
-          <div
-            className={`p-3 rounded-2xl border transition-colors ${
-              hasFlame
-                ? 'bg-red-950/80 border-red-500 text-red-100'
-                : 'bg-gray-950/60 border-gray-800 text-gray-300'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] text-gray-400 font-medium">Cảm biến Lửa</span>
-              <div
-                className={`p-1.5 rounded-lg ${
-                  hasFlame ? 'bg-red-600 text-white animate-bounce' : 'bg-emerald-500/10 text-emerald-400'
-                }`}
-              >
-                <Flame className="w-4 h-4" />
-              </div>
+          {/* Trạng thái nhị phân: Cảm biến lửa & Còi */}
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <div className={`p-2 rounded border text-xs flex items-center justify-between ${
+              hasFlame ? 'bg-red-950/70 border-red-600 text-red-300' : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-400'
+            }`}>
+              <span className="flex items-center gap-1 text-[11px]">
+                <Flame className="w-3.5 h-3.5" /> Lửa:
+              </span>
+              <strong className="font-mono font-bold text-[11px]">
+                {hasFlame ? 'PHÁT HIỆN' : 'AN TOÀN'}
+              </strong>
             </div>
-            <div
-              className={`text-sm font-bold mt-1 ${
-                hasFlame ? 'text-red-400 animate-pulse' : 'text-emerald-400'
-              }`}
-            >
-              {hasFlame ? '🔥 CÓ LỬA!' : 'An toàn'}
-            </div>
-            <div className="text-[10px] text-gray-500 mt-0.5">Trạng thái quang học</div>
-          </div>
 
-          {/* 4. Còi báo động (Buzzer Alarm) */}
-          <div
-            className={`p-3 rounded-2xl border transition-colors ${
-              isAlarming
-                ? 'bg-red-950/80 border-red-500 text-red-100'
-                : 'bg-gray-950/60 border-gray-800 text-gray-300'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] text-gray-400 font-medium">Còi báo động</span>
-              <div
-                className={`p-1.5 rounded-lg ${
-                  isAlarming ? 'bg-red-600 text-white animate-spin' : 'bg-gray-800 text-gray-400'
-                }`}
-              >
-                <Bell className="w-4 h-4" />
-              </div>
+            <div className={`p-2 rounded border text-xs flex items-center justify-between ${
+              isAlarming ? 'bg-red-950/70 border-red-600 text-red-300' : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-400'
+            }`}>
+              <span className="flex items-center gap-1 text-[11px]">
+                <Bell className="w-3.5 h-3.5" /> Còi:
+              </span>
+              <strong className="font-mono font-bold text-[11px]">
+                {isAlarming ? 'ĐANG HÚ' : 'YÊN LẶNG'}
+              </strong>
             </div>
-            <div
-              className={`text-sm font-bold mt-1 ${
-                isAlarming ? 'text-red-400 animate-pulse' : 'text-gray-300'
-              }`}
-            >
-              {isAlarming ? '🚨 ĐANG HÚ' : 'Yên lặng'}
-            </div>
-            <div className="text-[10px] text-gray-500 mt-0.5">Còi còi/chuông cục bộ</div>
           </div>
         </div>
 
-        {/* Thời điểm nhận tin cuối */}
-        <div className="flex items-center gap-1.5 text-[11px] text-gray-500 mb-3 px-1">
-          <Clock className="w-3 h-3" />
+        {/* Cập nhật lần cuối */}
+        <div className="flex items-center gap-1 text-[11px] text-zinc-500 mb-3 font-mono tabular-nums">
+          <Clock className="w-3 h-3 text-zinc-600" />
           <span>Cập nhật: {formatLastSeen()}</span>
         </div>
       </div>
 
-      {/* Footer Card: Nút Hành động */}
-      <div className="space-y-2 pt-3 border-t border-gray-800/80 mt-auto">
-        <div className="flex items-center gap-2">
+      {/* Footer tác chiến: Nút thao tác phần cứng */}
+      <div className="space-y-1.5 pt-2.5 border-t border-zinc-800 mt-auto">
+        <div className="flex items-center gap-1.5">
           {/* Nút Xem chi tiết */}
           <button
             type="button"
             onClick={() => onSelect(device)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold transition-all shadow-sm active:scale-98"
+            className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700 transition-colors"
           >
-            <Eye className="w-4 h-4 text-cyan-400" />
-            Chi tiết & Đồ thị
+            <Eye className="w-3.5 h-3.5 text-zinc-400" />
+            <span>Chi tiết & Logs</span>
           </button>
 
-          {/* Nút Test còi (Disabled với VIEWER) */}
+          {/* Nút Test còi (5s) */}
           {isViewer ? (
             <button
               type="button"
               disabled
-              className="flex items-center justify-center gap-1 py-2 px-2.5 rounded-xl bg-gray-900 border border-gray-800 text-gray-500 text-xs cursor-not-allowed opacity-50"
-              title="Tài khoản Viewer (Chỉ đọc): Không có quyền phát lệnh (Chốt chặn 403)"
+              className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-600 text-xs cursor-not-allowed opacity-50"
+              title="Viewer: Chỉ đọc (Không có quyền phát lệnh)"
             >
               <ShieldAlert className="w-3.5 h-3.5" />
-              Test (403)
+              <span>Khóa (403)</span>
             </button>
           ) : (
             <button
               type="button"
               disabled={isWaitingAck}
               onClick={handleTestAlarm}
-              className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-bold transition-all active:scale-95 shadow-sm disabled:opacity-50"
-              title="Gửi lệnh TEST_ALARM tới ESP32"
+              className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded bg-red-950/60 hover:bg-red-900/60 text-red-300 border border-red-700/60 text-xs font-semibold transition-colors disabled:opacity-50"
+              title="Phát lệnh test còi 5s tới ESP32"
             >
-              {isWaitingAck ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BellRing className="w-3.5 h-3.5 text-rose-400" />}
-              Test còi
+              {isWaitingAck ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BellRing className="w-3.5 h-3.5 text-red-400" />}
+              <span>Test 5s</span>
             </button>
           )}
         </div>
 
-        {/* Nút Tắt còi (30s / 60s / 120s) */}
+        {/* Nút Tắt còi (Dropdown) */}
         <div className="relative">
           {isViewer ? (
             <button
               type="button"
               disabled
-              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gray-900 border border-gray-800 text-gray-500 text-xs cursor-not-allowed opacity-50"
-              title="Tài khoản Viewer: Không có quyền tắt còi (Chốt chặn 403 Forbidden)"
+              className="w-full flex items-center justify-center gap-1 py-1.5 px-2 rounded bg-zinc-900 border border-zinc-800 text-zinc-600 text-xs cursor-not-allowed opacity-50"
+              title="Viewer: Không có quyền tắt còi"
             >
-              <ShieldAlert className="w-4 h-4 text-gray-500" />
-              Tắt còi (Chỉ đọc - 403)
+              <VolumeX className="w-3.5 h-3.5" />
+              <span>Tắt còi (Chỉ đọc)</span>
             </button>
           ) : (
             <div>
@@ -335,42 +298,45 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
                 type="button"
                 disabled={isWaitingAck}
                 onClick={() => setIsMuteMenuOpen((prev) => !prev)}
-                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all active:scale-98 shadow-sm disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded bg-amber-950/40 hover:bg-amber-900/40 text-amber-300 border border-amber-600/40 text-xs font-medium transition-colors disabled:opacity-50"
               >
                 {isWaitingAck ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
                 ) : (
-                  <VolumeX className="w-4 h-4 text-amber-400" />
+                  <VolumeX className="w-3.5 h-3.5 text-amber-400" />
                 )}
-                <span>Tắt còi (30s / 60s / 120s)</span>
-                <ChevronDown className="w-3.5 h-3.5 ml-1 text-amber-400" />
+                <span>Ngắt còi tạm thời</span>
+                <ChevronDown className="w-3 h-3 ml-0.5 text-amber-400" />
               </button>
 
-              {/* Menu chọn thời gian tắt còi */}
+              {/* Menu thời gian tắt còi */}
               {isMuteMenuOpen && (
-                <div className="absolute bottom-full left-0 right-0 mb-2 p-1.5 rounded-2xl bg-gray-900 border border-gray-700 shadow-2xl z-20 flex flex-col gap-1 text-xs animate-in fade-in zoom-in-95">
-                  <div className="px-2 py-1 text-[10px] text-gray-400 font-semibold border-b border-gray-800">
-                    Chọn thời gian tắt còi tạm thời:
+                <div className="absolute bottom-full left-0 right-0 mb-1.5 p-1 rounded-md bg-[#16181f] border border-zinc-700 shadow-xl z-20 flex flex-col gap-0.5 text-xs">
+                  <div className="px-2 py-1 text-[10px] text-zinc-400 font-semibold border-b border-zinc-800">
+                    Thời gian ngắt còi:
                   </div>
                   <button
+                    type="button"
                     onClick={() => handleMute(30)}
-                    className="flex items-center justify-between px-3 py-1.5 rounded-xl hover:bg-amber-500/20 text-gray-200 hover:text-amber-300 font-medium transition-colors"
+                    className="flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-amber-500/10 text-zinc-200 hover:text-amber-300 transition-colors"
                   >
-                    <span>Tắt còi 30 giây</span>
+                    <span>Ngắt còi 30 giây</span>
                     <span className="font-mono text-amber-400 text-[11px]">30s</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleMute(60)}
-                    className="flex items-center justify-between px-3 py-1.5 rounded-xl hover:bg-amber-500/20 text-gray-200 hover:text-amber-300 font-medium transition-colors"
+                    className="flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-amber-500/10 text-zinc-200 hover:text-amber-300 transition-colors"
                   >
-                    <span>Tắt còi 60 giây (Mặc định)</span>
+                    <span>Ngắt còi 60 giây (Chuẩn)</span>
                     <span className="font-mono text-amber-400 text-[11px]">60s</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleMute(120)}
-                    className="flex items-center justify-between px-3 py-1.5 rounded-xl hover:bg-amber-500/20 text-gray-200 hover:text-amber-300 font-medium transition-colors"
+                    className="flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-amber-500/10 text-zinc-200 hover:text-amber-300 transition-colors"
                   >
-                    <span>Tắt còi 120 giây (2 phút)</span>
+                    <span>Ngắt còi 120 giây (2 phút)</span>
                     <span className="font-mono text-amber-400 text-[11px]">120s</span>
                   </button>
                 </div>
