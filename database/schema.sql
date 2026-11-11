@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS public.devices (
         CHECK (status IN ('REGISTERED', 'PROVISIONED', 'ACTIVE', 'OFFLINE', 'MAINTENANCE', 'DECOMMISSIONED')),
     smoke_threshold DOUBLE PRECISION NOT NULL DEFAULT 400.0,
     temp_threshold DOUBLE PRECISION NOT NULL DEFAULT 55.0,
+    camera_url VARCHAR(255), -- URL Camera snapshot riêng gán cho từng thiết bị
     firmware_version VARCHAR(50) DEFAULT 'v1.0.0',
     assigned_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
     last_seen TIMESTAMPTZ,

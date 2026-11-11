@@ -21,6 +21,13 @@ import {
   XCircle,
   Loader2,
   ShieldAlert,
+  Camera,
+  CameraOff,
+  ExternalLink,
+  Play,
+  Pause,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -66,7 +73,58 @@ const generateDemoPoints = (deviceId: string, count = 20): TelemetryPoint[] => {
 export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, onClose, onDeviceUpdated }) => {
   const { isViewer } = useAuth();
   const { executeCommand, isDeviceWaitingAck } = useCommandTracker();
-  const [activeTab, setActiveTab] = useState<'REALTIME' | 'HISTORY' | 'CONTROL'>('REALTIME');
+  const [activeTab, setActiveTab] = useState<'REALTIME' | 'HISTORY' | 'CONTROL' | 'CAMERA'>('REALTIME');
+  const [isStreamPaused, setIsStreamPaused] = useState(false);
+  const [snapshotKey, setSnapshotKey] = useState(Date.now());
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [customCamInput, setCustomCamInput] = useState('');
+
+  // Lấy dữ liệu thiết bị thực tế từ store (kèm cấu hình camera riêng của từng node)
+  const storedDevice = useDeviceStore((state) => state.devices[device.id]);
+  const currentDevice = storedDevice || device;
+  const updateDeviceCamera = useDeviceStore((state) => state.updateDeviceCamera);
+
+  const activeCameraStream =
+    currentDevice.camera_stream_url ||
+    (currentDevice.camera_url?.includes('/shot.jpg')
+      ? currentDevice.camera_url.replace('/shot.jpg', '/video')
+      : currentDevice.camera_url);
+
+  const activeCameraSnapshot =
+    currentDevice.camera_url ||
+    (activeCameraStream?.includes('/video')
+      ? activeCameraStream.replace('/video', '/shot.jpg')
+      : activeCameraStream);
+
+  const handleManualSnapshot = () => {
+    if (!activeCameraSnapshot) return;
+    setIsCapturing(true);
+    const snapUrl = `${activeCameraSnapshot}${activeCameraSnapshot.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    window.open(snapUrl, '_blank');
+    setTimeout(() => {
+      setSnapshotKey(Date.now());
+      setIsCapturing(false);
+    }, 600);
+  };
+
+  const handleAssignPhoneCam = () => {
+    updateDeviceCamera(
+      currentDevice.id,
+      'http://192.168.1.238:8080/shot.jpg',
+      'http://192.168.1.238:8080/video'
+    );
+  };
+
+  const handleUnlinkCam = () => {
+    updateDeviceCamera(currentDevice.id, null, null);
+  };
+
+  const handleSaveCustomCam = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customCamInput.trim()) return;
+    updateDeviceCamera(currentDevice.id, customCamInput.trim());
+    setCustomCamInput('');
+  };
 
   // Lấy dữ liệu thời gian thực từ Zustand Store một cách an toàn (tránh tạo array mới trong selector)
   const telemetryByDevice = useDeviceStore((state) => state.telemetryByDevice);
@@ -281,149 +339,154 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-      <div className="w-full max-w-5xl bg-[#111726] border border-gray-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh] animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+      <div className="w-full max-w-5xl bg-[#111318] border border-zinc-800 rounded-md shadow-xl flex flex-col overflow-hidden max-h-[92vh]">
         {/* Header Modal */}
-        <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-gray-900/70">
+        <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-[#0e1015]">
           <div>
-            <div className="flex items-center gap-2.5">
-              <h2 className="text-lg font-bold text-white tracking-wide">{device.name}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-bold text-zinc-100 uppercase tracking-wide">{device.name}</h2>
               <span
-                className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${
+                className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
                   device.status === 'ONLINE'
-                    ? 'bg-emerald-950 text-emerald-400 border-emerald-500/50'
-                    : 'bg-rose-950 text-rose-300 border-rose-800'
+                    ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
+                    : 'bg-zinc-900 text-zinc-400 border-zinc-700'
                 }`}
               >
                 {device.status}
               </span>
             </div>
-            <p className="text-xs text-gray-400 mt-1">
-              Vị trí: <span className="text-gray-200">{device.location}</span> • Mã thiết bị:{' '}
-              <span className="font-mono text-cyan-400 font-semibold">{device.id}</span>
+            <p className="text-xs text-zinc-400 mt-0.5 font-mono">
+              Vị trí: <span className="text-zinc-200">{device.location}</span> · Node ID:{' '}
+              <span className="text-zinc-100 font-semibold">{device.id}</span>
             </p>
           </div>
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-800 transition-colors"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-gray-800 bg-gray-950/60 px-5 gap-2 text-xs font-semibold overflow-x-auto">
+        <div className="flex border-b border-zinc-800 bg-[#0c0e12] px-4 gap-1 text-xs font-mono font-semibold overflow-x-auto">
           <button
             onClick={() => setActiveTab('REALTIME')}
-            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all ${
+            className={`py-2.5 px-3 border-b-2 flex items-center gap-1.5 transition-colors ${
               activeTab === 'REALTIME'
-                ? 'border-cyan-500 text-cyan-400 bg-cyan-950/20'
-                : 'border-transparent text-gray-400 hover:text-gray-200'
+                ? 'border-red-600 text-zinc-100 bg-zinc-800/40'
+                : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/40'
             }`}
           >
-            <Activity size={16} />
-            Thời gian thực (Buffer 5 phút)
+            <Activity size={14} />
+            <span>Thời gian thực (5 phút)</span>
           </button>
 
           <button
             onClick={() => setActiveTab('HISTORY')}
-            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all ${
+            className={`py-2.5 px-3 border-b-2 flex items-center gap-1.5 transition-colors ${
               activeTab === 'HISTORY'
-                ? 'border-amber-500 text-amber-400 bg-amber-950/20'
-                : 'border-transparent text-gray-400 hover:text-gray-200'
+                ? 'border-red-600 text-zinc-100 bg-zinc-800/40'
+                : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/40'
             }`}
           >
-            <History size={16} />
-            Tra cứu lịch sử (API)
+            <History size={14} />
+            <span>Lịch sử đo đạc</span>
           </button>
 
           <button
             onClick={() => setActiveTab('CONTROL')}
-            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all ${
+            className={`py-2.5 px-3 border-b-2 flex items-center gap-1.5 transition-colors ${
               activeTab === 'CONTROL'
-                ? 'border-red-500 text-red-400 bg-red-950/20'
-                : 'border-transparent text-gray-400 hover:text-gray-200'
+                ? 'border-red-600 text-zinc-100 bg-zinc-800/40'
+                : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/40'
             }`}
           >
-            <Sliders size={16} />
-            Điều khiển & Ngưỡng
+            <Sliders size={14} />
+            <span>Điều khiển & Ngưỡng</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('CAMERA')}
+            className={`py-2.5 px-3 border-b-2 flex items-center gap-1.5 transition-colors ${
+              activeTab === 'CAMERA'
+                ? 'border-amber-500 text-amber-300 bg-amber-950/20'
+                : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/40'
+            }`}
+          >
+            <Camera size={14} className={activeTab === 'CAMERA' ? 'text-amber-400' : 'text-zinc-500'} />
+            <span>Camera hiện trường</span>
+            {activeCameraStream ? (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Đã kết nối nguồn Camera" />
+            ) : (
+              <span className="text-[10px] font-mono text-zinc-500 font-normal">(Chưa gán)</span>
+            )}
           </button>
         </div>
 
         {/* Modal Body Content */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-5">
+        <div className="p-4 overflow-y-auto flex-1 space-y-4">
           {/* ================================================================= */}
           {/* TAB 1: THỜI GIAN THỰC (BUFFER 5 PHÚT)                            */}
           {/* ================================================================= */}
           {activeTab === 'REALTIME' && (
-            <div className="space-y-4">
+            <div className="space-y-3.5">
               {/* Thanh tóm tắt thông số live */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3 rounded-2xl bg-gray-900/60 border border-gray-800 flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-orange-500/15 text-orange-400">
-                    <Thermometer size={18} />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="p-2.5 rounded border border-zinc-800 bg-[#0e1015]">
+                  <div className="text-[11px] text-zinc-400 flex items-center gap-1">
+                    <Thermometer size={14} className="text-zinc-500" /> Nhiệt độ hiện tại
                   </div>
-                  <div>
-                    <div className="text-[11px] text-gray-400">Nhiệt độ hiện tại</div>
-                    <div className="text-base font-extrabold text-white font-mono">
-                      {device.latest_temp ? `${device.latest_temp.toFixed(1)}°C` : '--'}
-                    </div>
+                  <div className="text-base font-bold text-zinc-100 font-mono tabular-nums mt-1">
+                    {device.latest_temp ? `${device.latest_temp.toFixed(1)}°C` : '--'}
                   </div>
                 </div>
 
-                <div className="p-3 rounded-2xl bg-gray-900/60 border border-gray-800 flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-purple-500/15 text-purple-400">
-                    <Wind size={18} />
+                <div className="p-2.5 rounded border border-zinc-800 bg-[#0e1015]">
+                  <div className="text-[11px] text-zinc-400 flex items-center gap-1">
+                    <Wind size={14} className="text-zinc-500" /> Khí Gas (MQ-2)
                   </div>
-                  <div>
-                    <div className="text-[11px] text-gray-400">Nồng độ Khí Gas</div>
-                    <div className="text-base font-extrabold text-white font-mono">
-                      {device.latest_gas ? `${device.latest_gas.toFixed(1)} ppm` : '--'}
-                    </div>
+                  <div className="text-base font-bold text-zinc-100 font-mono tabular-nums mt-1">
+                    {device.latest_gas ? `${device.latest_gas.toFixed(1)} PPM` : '--'}
                   </div>
                 </div>
 
-                <div className="p-3 rounded-2xl bg-gray-900/60 border border-gray-800 flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-cyan-500/15 text-cyan-400">
-                    <Droplets size={18} />
+                <div className="p-2.5 rounded border border-zinc-800 bg-[#0e1015]">
+                  <div className="text-[11px] text-zinc-400 flex items-center gap-1">
+                    <Droplets size={14} className="text-zinc-500" /> Độ ẩm không khí
                   </div>
-                  <div>
-                    <div className="text-[11px] text-gray-400">Độ ẩm không khí</div>
-                    <div className="text-base font-extrabold text-white font-mono">
-                      {device.latest_humidity ? `${device.latest_humidity.toFixed(1)}%` : '--'}
-                    </div>
+                  <div className="text-base font-bold text-zinc-100 font-mono tabular-nums mt-1">
+                    {device.latest_humidity ? `${device.latest_humidity.toFixed(1)}%` : '--'}
                   </div>
                 </div>
 
-                <div className="p-3 rounded-2xl bg-gray-900/60 border border-gray-800 flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-red-500/15 text-red-400">
-                    <Flame size={18} />
+                <div className="p-2.5 rounded border border-zinc-800 bg-[#0e1015]">
+                  <div className="text-[11px] text-zinc-400 flex items-center gap-1">
+                    <Flame size={14} className="text-zinc-500" /> Cảm biến Lửa
                   </div>
-                  <div>
-                    <div className="text-[11px] text-gray-400">Cảm biến Lửa</div>
-                    <div
-                      className={`text-sm font-bold ${
-                        device.latest_flame ? 'text-red-400 animate-pulse' : 'text-emerald-400'
-                      }`}
-                    >
-                      {device.latest_flame ? '🔥 CÓ LỬA' : 'An toàn'}
-                    </div>
+                  <div
+                    className={`text-base font-bold font-mono mt-1 ${
+                      device.latest_flame ? 'text-red-400' : 'text-emerald-400'
+                    }`}
+                  >
+                    {device.latest_flame ? 'PHÁT HIỆN' : 'AN TOÀN'}
                   </div>
                 </div>
               </div>
 
               {/* Khung đồ thị Recharts */}
-              <div className="bg-gray-950/70 border border-gray-800 rounded-2xl p-4">
-                <div className="flex items-center justify-between mb-3">
+              <div className="bg-[#0e1015] border border-zinc-800 rounded p-3.5">
+                <div className="flex items-center justify-between mb-2 pb-2 border-b border-zinc-800/80">
                   <div className="flex items-center gap-2">
-                    <Activity size={16} className="text-cyan-400 animate-pulse" />
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">
-                      Biểu đồ trực tiếp: Khí Gas, Nhiệt độ & Độ ẩm (Cửa sổ 5 phút)
+                    <Activity size={14} className="text-zinc-400" />
+                    <span className="text-xs font-bold text-zinc-200 uppercase tracking-wider font-mono">
+                      Biểu đồ telemetry: Khí Gas, Nhiệt độ & Độ ẩm (Cửa sổ 5 phút)
                     </span>
                   </div>
-                  <span className="text-[11px] text-gray-400">
-                    Điểm dữ liệu trong buffer: <b className="text-cyan-400">{realtimeChartData.length}</b>
+                  <span className="text-[11px] text-zinc-500 font-mono">
+                    Buffer: <strong className="text-zinc-300">{realtimeChartData.length}</strong> điểm
                   </span>
                 </div>
 
@@ -524,20 +587,20 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
           {/* TAB 2: TRA CỨU LỊCH SỬ ĐO ĐẠC QUA API                              */}
           {/* ================================================================= */}
           {activeTab === 'HISTORY' && (
-            <div className="space-y-4">
+            <div className="space-y-3.5">
               {/* Thanh điều khiển bộ lọc thời gian */}
-              <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="bg-[#0e1015] border border-zinc-800 rounded p-3 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2.5">
                   {/* Presets nhanh */}
-                  <div className="flex items-center gap-1.5 bg-gray-950 p-1 rounded-xl border border-gray-800 text-xs">
+                  <div className="flex items-center gap-1 bg-[#090a0f] p-0.5 rounded border border-zinc-800 text-xs font-mono">
                     {(['1h', '6h', '24h', 'custom'] as const).map((preset) => (
                       <button
                         key={preset}
                         onClick={() => setHistoryPreset(preset)}
-                        className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                        className={`px-2.5 py-1 rounded font-medium transition-colors ${
                           historyPreset === preset
-                            ? 'bg-amber-600 text-white shadow-sm'
-                            : 'text-gray-400 hover:text-white'
+                            ? 'bg-zinc-800 text-zinc-100'
+                            : 'text-zinc-400 hover:text-zinc-200'
                         }`}
                       >
                         {preset === '1h' && '1 giờ qua'}
@@ -552,43 +615,43 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                   <button
                     onClick={() => fetchApiHistory()}
                     disabled={isHistoryLoading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold transition-all"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700 transition-colors"
                   >
-                    <RotateCcw size={14} className={isHistoryLoading ? 'animate-spin' : ''} />
-                    Tra cứu dữ liệu
+                    <RotateCcw size={13} className={isHistoryLoading ? 'animate-spin' : ''} />
+                    <span>Tra cứu dữ liệu</span>
                   </button>
                 </div>
 
                 {/* Date range pickers khi chọn tùy chỉnh */}
                 {historyPreset === 'custom' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-gray-800 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-zinc-800 text-xs font-mono">
                     <div>
-                      <label className="text-gray-400 block mb-1">Từ thời điểm:</label>
+                      <label className="text-zinc-400 block mb-1">Từ thời điểm:</label>
                       <input
                         type="datetime-local"
                         value={fromTime}
                         onChange={(e) => setFromTime(e.target.value)}
-                        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-white text-xs focus:border-amber-500 focus:outline-none"
+                        className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 text-xs focus:border-zinc-600 focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="text-gray-400 block mb-1">Đến thời điểm:</label>
+                      <label className="text-zinc-400 block mb-1">Đến thời điểm:</label>
                       <input
                         type="datetime-local"
                         value={toTime}
                         onChange={(e) => setToTime(e.target.value)}
-                        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-white text-xs focus:border-amber-500 focus:outline-none"
+                        className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 text-xs focus:border-zinc-600 focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="text-gray-400 block mb-1">Giới hạn số dòng (tối đa 1000):</label>
+                      <label className="text-zinc-400 block mb-1">Số dòng tối đa (max 1000):</label>
                       <input
                         type="number"
                         min={1}
                         max={1000}
                         value={limitCount}
                         onChange={(e) => setLimitCount(parseInt(e.target.value, 10) || 100)}
-                        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-white text-xs focus:border-amber-500 focus:outline-none"
+                        className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 text-xs focus:border-zinc-600 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -602,81 +665,82 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                   <span>Đang truy vấn lịch sử telemetry từ Gateway API...</span>
                 </div>
               ) : historyError ? (
-                <div className="p-4 rounded-2xl bg-red-950/40 border border-red-500/50 text-red-200 text-xs flex items-center justify-between">
+                <div className="p-3 rounded border border-red-800 bg-red-950/40 text-red-200 text-xs flex items-center justify-between font-mono">
                   <span>{historyError}</span>
                   <button onClick={() => fetchApiHistory()} className="underline font-bold text-red-300">
                     Thử lại
                   </button>
                 </div>
               ) : historyChartData.length === 0 ? (
-                <div className="py-20 text-center glass-panel rounded-2xl border border-gray-800">
-                  <Calendar size={32} className="text-gray-600 mx-auto mb-2" />
-                  <p className="text-sm text-gray-400">Không tìm thấy bản ghi đo đạc nào trong khoảng thời gian đã chọn.</p>
+                <div className="py-16 text-center rounded-md border border-zinc-800 bg-[#111318]">
+                  <Calendar size={28} className="text-zinc-600 mx-auto mb-2" />
+                  <p className="text-xs text-zinc-400">Không tìm thấy bản ghi đo đạc nào trong khoảng thời gian đã chọn.</p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3.5">
                   {/* Đồ thị Lịch sử */}
-                  <div className="bg-gray-950/70 border border-gray-800 rounded-2xl p-4">
-                    <div className="text-xs font-bold text-white uppercase tracking-wider mb-3">
+                  <div className="bg-[#0e1015] border border-zinc-800 rounded p-3.5">
+                    <div className="text-xs font-bold text-zinc-200 uppercase tracking-wider mb-2 font-mono">
                       Đồ thị lịch sử ({historyChartData.length} điểm đo)
                     </div>
                     <div className="h-72 w-full min-h-[288px]">
                       <ResponsiveContainer width="100%" height={280}>
                         <LineChart data={historyChartData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                          <XAxis dataKey="time" stroke="#6b7280" tick={{ fontSize: 10 }} />
-                          <YAxis yAxisId="left" stroke="#6b7280" tick={{ fontSize: 10 }} />
-                          <YAxis yAxisId="right" orientation="right" stroke="#a855f7" tick={{ fontSize: 10 }} />
+                          <CartesianGrid strokeDasharray="3 3" stroke="#242834" vertical={false} />
+                          <XAxis dataKey="time" stroke="#71717a" tick={{ fontSize: 10 }} />
+                          <YAxis yAxisId="left" stroke="#71717a" tick={{ fontSize: 10 }} />
+                          <YAxis yAxisId="right" orientation="right" stroke="#38bdf8" tick={{ fontSize: 10 }} />
                           <Tooltip
                             contentStyle={{
-                              backgroundColor: '#111827',
-                              borderColor: '#374151',
-                              borderRadius: '12px',
-                              fontSize: '12px',
+                              backgroundColor: '#111318',
+                              borderColor: '#27272a',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              fontFamily: 'monospace',
                             }}
                           />
-                          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
                           <Line yAxisId="left" type="monotone" dataKey="temperature" name="Nhiệt độ (°C)" stroke="#f97316" strokeWidth={2} dot={false} />
-                          <Line yAxisId="left" type="monotone" dataKey="humidity" name="Độ ẩm (%)" stroke="#06b6d4" strokeWidth={2} dot={false} />
-                          <Line yAxisId="right" type="monotone" dataKey="gas_ppm" name="Khí Gas (ppm)" stroke="#a855f7" strokeWidth={2} dot={false} />
+                          <Line yAxisId="left" type="monotone" dataKey="humidity" name="Độ ẩm (%)" stroke="#10b981" strokeWidth={2} dot={false} />
+                          <Line yAxisId="right" type="monotone" dataKey="gas_ppm" name="Khí Gas (ppm)" stroke="#38bdf8" strokeWidth={2} dot={false} />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
 
                   {/* Bảng dữ liệu chi tiết */}
-                  <div className="bg-gray-950/70 border border-gray-800 rounded-2xl overflow-hidden">
-                    <div className="p-3.5 border-b border-gray-800 text-xs font-bold text-gray-300">
+                  <div className="bg-[#0e1015] border border-zinc-800 rounded overflow-hidden">
+                    <div className="p-2.5 border-b border-zinc-800 text-xs font-bold text-zinc-300 font-mono">
                       Bảng chi tiết dữ liệu đo đạc
                     </div>
                     <div className="max-h-60 overflow-y-auto">
-                      <table className="w-full text-left text-xs text-gray-300">
-                        <thead className="sticky top-0 bg-gray-900 text-gray-400 font-semibold border-b border-gray-800">
+                      <table className="w-full text-left text-xs text-zinc-300">
+                        <thead className="sticky top-0 bg-[#090a0f] text-zinc-400 font-mono text-[11px] border-b border-zinc-800">
                           <tr>
-                            <th className="p-2.5">Thời gian</th>
-                            <th className="p-2.5">Nhiệt độ</th>
-                            <th className="p-2.5">Khí Gas</th>
-                            <th className="p-2.5">Độ ẩm</th>
-                            <th className="p-2.5">Lửa</th>
-                            <th className="p-2.5">Còi</th>
+                            <th className="p-2">Thời gian</th>
+                            <th className="p-2">Nhiệt độ</th>
+                            <th className="p-2">Khí Gas</th>
+                            <th className="p-2">Độ ẩm</th>
+                            <th className="p-2">Lửa</th>
+                            <th className="p-2">Còi</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-800/60 font-mono">
+                        <tbody className="divide-y divide-zinc-800/80 font-mono text-xs tabular-nums">
                           {historyChartData.map((row, idx) => (
-                            <tr key={idx} className="hover:bg-gray-900/40">
-                              <td className="p-2.5 text-gray-400">{row.time}</td>
-                              <td className={`p-2.5 font-bold ${row.temperature >= device.temp_threshold ? 'text-red-400' : 'text-white'}`}>
+                            <tr key={idx} className="hover:bg-zinc-800/40">
+                              <td className="p-2 text-zinc-400">{row.time}</td>
+                              <td className={`p-2 font-bold ${row.temperature >= device.temp_threshold ? 'text-red-400' : 'text-zinc-100'}`}>
                                 {row.temperature}°C
                               </td>
-                              <td className={`p-2.5 font-bold ${row.gas_ppm >= device.gas_threshold ? 'text-red-400' : 'text-white'}`}>
-                                {row.gas_ppm} ppm
+                              <td className={`p-2 font-bold ${row.gas_ppm >= device.gas_threshold ? 'text-red-400' : 'text-zinc-100'}`}>
+                                {row.gas_ppm} PPM
                               </td>
-                              <td className="p-2.5 text-cyan-300">{row.humidity}%</td>
-                              <td className="p-2.5">
-                                {row.flame_detected ? <span className="text-red-400 font-bold">CÓ LỬA</span> : <span className="text-gray-500">Không</span>}
+                              <td className="p-2 text-emerald-400">{row.humidity}%</td>
+                              <td className="p-2">
+                                {row.flame_detected ? <span className="text-red-400 font-bold">CÓ LỬA</span> : <span className="text-zinc-500">An toàn</span>}
                               </td>
-                              <td className="p-2.5">
-                                {row.local_alarm ? <span className="text-red-400 font-bold">BÁO ĐỘNG</span> : <span className="text-gray-500">Tắt</span>}
+                              <td className="p-2">
+                                {row.local_alarm ? <span className="text-red-400 font-bold">BÁO ĐỘNG</span> : <span className="text-zinc-500">Yên lặng</span>}
                               </td>
                             </tr>
                           ))}
@@ -693,25 +757,25 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
           {/* TAB 3: ĐIỀU KHIỂN & CẬP NHẬT NGƯỠNG                                */}
           {/* ================================================================= */}
           {activeTab === 'CONTROL' && (
-            <div className="space-y-5">
+            <div className="space-y-4">
               {/* Cảnh báo phân quyền đối với VIEWER */}
               {isViewer && (
-                <div className="p-3.5 rounded-2xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-center gap-2.5 shadow-md">
-                  <ShieldAlert size={18} className="text-amber-400 flex-shrink-0" />
+                <div className="p-3 rounded border border-amber-800 bg-amber-950/40 text-amber-200 text-xs flex items-center gap-2">
+                  <ShieldAlert size={16} className="text-amber-400 flex-shrink-0" />
                   <span>
-                    <b>Tài khoản VIEWER (Chỉ đọc):</b> Bạn không có quyền điều khiển hoặc đổi ngưỡng cảm biến. Mọi thao tác đều bị khóa trên giao diện và bảo vệ bởi chốt chặn HTTP 403 Forbidden của Gateway.
+                    <strong>Tài khoản VIEWER (Chỉ đọc):</strong> Bạn không có quyền điều khiển hoặc đổi ngưỡng cảm biến. Mọi thao tác bị khóa trên giao diện và bảo vệ bởi chốt chặn HTTP 403 Forbidden.
                   </span>
                 </div>
               )}
 
               {/* Trạng thái chờ ACK khớp command_id từ WebSocket */}
               {isDeviceWaitingAck(device.id) && (
-                <div className="p-3.5 rounded-2xl bg-cyan-950/60 border border-cyan-500/50 text-cyan-200 text-xs flex items-center gap-2.5 animate-pulse shadow-md">
-                  <Loader2 size={18} className="animate-spin text-cyan-400 flex-shrink-0" />
+                <div className="p-3 rounded border border-sky-800 bg-sky-950/60 text-sky-200 text-xs flex items-center gap-2 font-mono">
+                  <Loader2 size={16} className="animate-spin text-sky-400 flex-shrink-0" />
                   <div>
                     <span className="font-bold">Đang chờ phản hồi ACK từ ESP32 qua WebSocket...</span>
-                    <span className="block text-[11px] text-cyan-300 mt-0.5">
-                      Hệ thống tự động lắng nghe và khớp chính xác command_id với thời gian chờ tối đa 10 giây.
+                    <span className="block text-[11px] text-sky-300 mt-0.5">
+                      Hệ thống tự động lắng nghe và khớp chính xác command_id (Timeout 10s).
                     </span>
                   </div>
                 </div>
@@ -720,52 +784,52 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
               {/* Thông báo kết quả phát lệnh */}
               {actionFeedback && (
                 <div
-                  className={`p-3.5 rounded-2xl border text-xs flex items-center justify-between ${
+                  className={`p-3 rounded border text-xs flex items-center justify-between font-mono ${
                     actionFeedback.type === 'success'
-                      ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200'
-                      : 'bg-red-950/40 border-red-500/50 text-red-200'
+                      ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200'
+                      : 'bg-red-950/40 border-red-800 text-red-200'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    {actionFeedback.type === 'success' ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+                    {actionFeedback.type === 'success' ? <CheckCircle2 size={15} /> : <XCircle size={15} />}
                     <span>{actionFeedback.message}</span>
                   </div>
-                  <button onClick={() => setActionFeedback(null)} className="text-gray-400 hover:text-white">
+                  <button onClick={() => setActionFeedback(null)} className="text-zinc-400 hover:text-white">
                     <X size={14} />
                   </button>
                 </div>
               )}
 
               {/* Lưới chức năng điều khiển nhanh */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 {/* 1. Tắt còi báo động MUTE_BUZZER (30s / 60s / 120s) */}
-                <div className="p-4 rounded-2xl bg-gray-900/60 border border-gray-800 space-y-3">
-                  <div className="flex items-center gap-2 text-white font-bold text-sm">
-                    <VolumeX className="text-amber-400" size={18} />
+                <div className="p-3.5 rounded border border-zinc-800 bg-[#0e1015] space-y-2.5">
+                  <div className="flex items-center gap-2 text-zinc-100 font-bold text-xs uppercase tracking-wide font-mono">
+                    <VolumeX className="text-amber-400" size={16} />
                     <span>Tắt còi báo động tạm thời (MUTE_BUZZER)</span>
                   </div>
-                  <p className="text-xs text-gray-400 leading-relaxed">
-                    Phát lệnh tới ESP32 để tạm thời ngắt còi hú trong khoảng thời gian đã chọn:
+                  <p className="text-xs text-zinc-400">
+                    Phát lệnh tới ESP32 để tạm ngắt còi hú trong khoảng thời gian đã chọn:
                   </p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-2 font-mono text-xs">
                     <button
                       disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
                       onClick={() => handleSendCommand('MUTE_BUZZER', { duration_sec: 30 }, 'Tắt còi 30s')}
-                      className="py-2 px-2 rounded-xl bg-amber-600/80 hover:bg-amber-500 disabled:opacity-40 text-white font-bold text-xs transition-all active:scale-95 shadow-sm text-center"
+                      className="py-1.5 px-2 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 font-semibold border border-zinc-700 transition-colors text-center"
                     >
                       30 giây
                     </button>
                     <button
                       disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
                       onClick={() => handleSendCommand('MUTE_BUZZER', { duration_sec: 60 }, 'Tắt còi 60s')}
-                      className="py-2 px-2 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white font-bold text-xs transition-all active:scale-95 shadow-sm text-center"
+                      className="py-1.5 px-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-zinc-950 font-bold transition-colors text-center"
                     >
                       60 giây
                     </button>
                     <button
                       disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
                       onClick={() => handleSendCommand('MUTE_BUZZER', { duration_sec: 120 }, 'Tắt còi 120s')}
-                      className="py-2 px-2 rounded-xl bg-amber-600/80 hover:bg-amber-500 disabled:opacity-40 text-white font-bold text-xs transition-all active:scale-95 shadow-sm text-center"
+                      className="py-1.5 px-2 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 font-semibold border border-zinc-700 transition-colors text-center"
                     >
                       120 giây
                     </button>
@@ -773,56 +837,56 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                 </div>
 
                 {/* 2. Thử nghiệm còi TEST_ALARM */}
-                <div className="p-4 rounded-2xl bg-gray-900/60 border border-gray-800 space-y-3 flex flex-col justify-between">
+                <div className="p-3.5 rounded border border-zinc-800 bg-[#0e1015] space-y-2.5 flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center gap-2 text-white font-bold text-sm">
-                      <BellRing className="text-red-400" size={18} />
-                      <span>Thử nghiệm còi báo động (TEST_ALARM)</span>
+                    <div className="flex items-center gap-2 text-zinc-100 font-bold text-xs uppercase tracking-wide font-mono">
+                      <BellRing className="text-red-400" size={16} />
+                      <span>Thử nghiệm còi báo (TEST_ALARM)</span>
                     </div>
-                    <p className="text-xs text-gray-400 leading-relaxed mt-1">
+                    <p className="text-xs text-zinc-400 mt-1">
                       Kích hoạt còi hú và đèn báo trên thiết bị trong 5 giây để kiểm tra tính năng phần cứng.
                     </p>
                   </div>
                   <button
                     disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
                     onClick={() => handleSendCommand('TEST_ALARM', { duration_sec: 5 }, 'Test còi báo động 5s')}
-                    className="w-full py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white font-bold text-xs transition-all active:scale-98 shadow-md flex items-center justify-center gap-1.5"
+                    className="w-full py-1.5 px-3 rounded bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white font-semibold text-xs border border-red-600 transition-colors flex items-center justify-center gap-1.5 font-mono"
                   >
-                    <BellRing size={14} />
-                    Kích hoạt thử còi báo (5s)
+                    <BellRing size={13} />
+                    <span>Kích hoạt còi thử (5s)</span>
                   </button>
                 </div>
               </div>
 
               {/* Form cập nhật ngưỡng UPDATE_THRESHOLD */}
-              <div className="p-4 rounded-2xl bg-gray-900/60 border border-gray-800 space-y-4">
-                <div className="flex items-center gap-2 text-white font-bold text-sm">
-                  <Sliders className="text-cyan-400" size={18} />
+              <div className="p-3.5 rounded border border-zinc-800 bg-[#0e1015] space-y-3">
+                <div className="flex items-center gap-2 text-zinc-100 font-bold text-xs uppercase tracking-wide font-mono">
+                  <Sliders className="text-zinc-400" size={16} />
                   <span>Cập nhật ngưỡng cảm biến thiết bị (UPDATE_THRESHOLD)</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
                   <div>
-                    <label className="text-gray-300 font-medium block mb-1.5">Ngưỡng nhiệt độ báo cháy (°C):</label>
+                    <label className="text-zinc-400 block mb-1">Ngưỡng nhiệt độ báo cháy (°C):</label>
                     <input
                       type="number"
                       step="0.5"
                       value={tempThresholdInput}
                       onChange={(e) => setTempThresholdInput(e.target.value)}
                       disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
-                      className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-white font-mono focus:border-cyan-500 focus:outline-none disabled:opacity-50"
+                      className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 font-mono focus:border-zinc-600 focus:outline-none disabled:opacity-50"
                     />
                   </div>
 
                   <div>
-                    <label className="text-gray-300 font-medium block mb-1.5">Ngưỡng nồng độ khí Gas (ppm):</label>
+                    <label className="text-zinc-400 block mb-1">Ngưỡng nồng độ khí Gas (PPM):</label>
                     <input
                       type="number"
                       step="10"
                       value={gasThresholdInput}
                       onChange={(e) => setGasThresholdInput(e.target.value)}
                       disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
-                      className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-white font-mono focus:border-cyan-500 focus:outline-none disabled:opacity-50"
+                      className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 font-mono focus:border-zinc-600 focus:outline-none disabled:opacity-50"
                     />
                   </div>
                 </div>
@@ -839,56 +903,56 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                       'Đổi ngưỡng cảm biến'
                     )
                   }
-                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40 text-white font-bold text-xs transition-all active:scale-98 shadow-md"
+                  className="w-full py-2 px-3 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-100 font-semibold text-xs border border-zinc-700 transition-colors font-mono"
                 >
-                  Cập nhật ngưỡng thiết bị
+                  Gửi lệnh đổi ngưỡng tới phần cứng
                 </button>
               </div>
 
               {/* Lịch sử lệnh điều khiển và ACK phản hồi */}
-              <div className="bg-gray-950/70 border border-gray-800 rounded-2xl overflow-hidden">
-                <div className="p-3.5 border-b border-gray-800 text-xs font-bold text-gray-300 flex items-center justify-between">
+              <div className="bg-[#0e1015] border border-zinc-800 rounded overflow-hidden">
+                <div className="p-2.5 border-b border-zinc-800 text-xs font-bold text-zinc-300 font-mono flex items-center justify-between">
                   <span>Nhật ký lệnh điều khiển & ACK từ ESP32</span>
-                  <button onClick={loadCommands} className="text-cyan-400 hover:underline text-[11px]">
+                  <button onClick={loadCommands} className="text-zinc-400 hover:text-zinc-200 text-[11px] underline">
                     Làm mới
                   </button>
                 </div>
                 <div className="max-h-52 overflow-y-auto">
                   {commandLogs.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-gray-500">Chưa có lệnh điều khiển nào được phát.</div>
+                    <div className="py-6 text-center text-xs text-zinc-500 font-mono">Chưa có lệnh điều khiển nào được phát.</div>
                   ) : (
-                    <table className="w-full text-left text-xs text-gray-300">
-                      <thead className="bg-gray-900 text-gray-400 border-b border-gray-800">
+                    <table className="w-full text-left text-xs text-zinc-300">
+                      <thead className="sticky top-0 bg-[#090a0f] text-zinc-400 border-b border-zinc-800 font-mono text-[11px]">
                         <tr>
-                          <th className="p-2.5">Mã lệnh</th>
-                          <th className="p-2.5">Hành động</th>
-                          <th className="p-2.5">Trạng thái</th>
-                          <th className="p-2.5">Thời gian</th>
-                          <th className="p-2.5">Phản hồi ACK</th>
+                          <th className="p-2">Mã lệnh</th>
+                          <th className="p-2">Hành động</th>
+                          <th className="p-2">Trạng thái</th>
+                          <th className="p-2">Thời gian</th>
+                          <th className="p-2">Phản hồi ACK</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-800/60 font-mono text-[11px]">
+                      <tbody className="divide-y divide-zinc-800/80 font-mono text-[11px] tabular-nums">
                         {commandLogs.map((cmd) => (
-                          <tr key={cmd.id} className="hover:bg-gray-900/40">
-                            <td className="p-2.5 text-cyan-400">{cmd.command_id}</td>
-                            <td className="p-2.5 text-white font-bold">{cmd.action}</td>
-                            <td className="p-2.5">
+                          <tr key={cmd.id} className="hover:bg-zinc-800/40">
+                            <td className="p-2 text-zinc-300">{cmd.command_id}</td>
+                            <td className="p-2 text-zinc-100 font-semibold">{cmd.action}</td>
+                            <td className="p-2">
                               <span
-                                className={`px-2 py-0.5 rounded text-[10px] ${
+                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
                                   cmd.status === 'SUCCESS'
-                                    ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40'
+                                    ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
                                     : cmd.status === 'FAILED'
-                                    ? 'bg-red-950 text-red-400 border border-red-500/40'
-                                    : 'bg-amber-950 text-amber-300'
+                                    ? 'bg-red-950 text-red-400 border-red-800'
+                                    : 'bg-zinc-900 text-amber-300 border-zinc-700'
                                 }`}
                               >
                                 {cmd.status}
                               </span>
                             </td>
-                            <td className="p-2.5 text-gray-400">
+                            <td className="p-2 text-zinc-400">
                               {new Date(cmd.created_at).toLocaleTimeString('vi-VN')}
                             </td>
-                            <td className="p-2.5 text-gray-300 truncate max-w-xs" title={cmd.ack_message || ''}>
+                            <td className="p-2 text-zinc-300 truncate max-w-xs" title={cmd.ack_message || ''}>
                               {cmd.ack_message || 'Đang chờ ACK...'}
                             </td>
                           </tr>
@@ -898,6 +962,172 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* TAB 4: CAMERA HIỆN TRƯỜNG (ON-DEMAND LIVE STREAM & SNAPSHOT)      */}
+          {/* ================================================================= */}
+          {activeTab === 'CAMERA' && (
+            <div className="space-y-3.5">
+              {activeCameraStream ? (
+                <>
+                  {/* Thanh điều khiển luồng Camera của Node này */}
+                  <div className="p-3 rounded border border-zinc-800 bg-[#0e1015] flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2">
+                      <Camera size={16} className="text-amber-400 flex-shrink-0" />
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold text-zinc-100 font-mono uppercase">
+                            CAMERA RIÊNG • {currentDevice.name} [{currentDevice.location}]
+                          </span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-bold">
+                            {isStreamPaused ? 'TẠM DỪNG' : '● LIVE ON-DEMAND'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 mt-0.5 font-mono">
+                          Nguồn cấp: <code className="text-zinc-300">{activeCameraStream}</code>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 font-mono text-xs flex-wrap">
+                      {/* Nút Pause / Resume Stream */}
+                      <button
+                        type="button"
+                        onClick={() => setIsStreamPaused((prev) => !prev)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-xs font-semibold transition-colors ${
+                          isStreamPaused
+                            ? 'bg-emerald-950/60 border-emerald-700 text-emerald-300 hover:bg-emerald-900/60'
+                            : 'bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-700'
+                        }`}
+                      >
+                        {isStreamPaused ? <Play size={13} /> : <Pause size={13} />}
+                        <span>{isStreamPaused ? 'Bật lại video' : 'Tạm dừng'}</span>
+                      </button>
+
+                      {/* Nút chụp Snapshot thủ công */}
+                      <button
+                        type="button"
+                        onClick={handleManualSnapshot}
+                        disabled={isCapturing}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold border border-amber-500 transition-colors disabled:opacity-50"
+                      >
+                        <Camera size={13} />
+                        <span>{isCapturing ? 'Đang chụp...' : 'Chụp ảnh'}</span>
+                      </button>
+
+                      {/* Mở tab ngoài */}
+                      <a
+                        href={activeCameraStream.replace('/video', '')}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition-colors"
+                        title="Mở trang điều khiển gốc của Camera"
+                      >
+                        <ExternalLink size={13} />
+                        <span className="hidden sm:inline">Trang gốc</span>
+                      </a>
+
+                      {/* Nút gỡ gán camera khỏi node này */}
+                      {!isViewer && (
+                        <button
+                          type="button"
+                          onClick={handleUnlinkCam}
+                          className="flex items-center gap-1 px-2 py-1.5 rounded bg-red-950/40 hover:bg-red-900/40 text-red-300 border border-red-800/60 text-xs transition-colors"
+                          title="Hủy gán camera này khỏi node"
+                        >
+                          <Trash2 size={12} />
+                          <span>Gỡ cam</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Khung chiếu Video / Snapshot riêng của Node này */}
+                  <div className="relative bg-black rounded border border-zinc-800 overflow-hidden flex items-center justify-center min-h-[360px] max-h-[58vh]">
+                    {!isStreamPaused ? (
+                      <img
+                        key={snapshotKey}
+                        src={activeCameraStream}
+                        alt={`Live Feed ${currentDevice.name}`}
+                        className="w-full h-auto max-h-[56vh] object-contain"
+                        onError={(e) => {
+                          if (activeCameraSnapshot) {
+                            (e.target as HTMLImageElement).src = `${activeCameraSnapshot}${activeCameraSnapshot.includes('?') ? '&' : '?'}t=${Date.now()}`;
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className="text-center p-8 space-y-2">
+                        <Pause size={32} className="text-zinc-600 mx-auto" />
+                        <p className="text-xs text-zinc-400 font-mono">Luồng video đang tạm dừng để giải phóng băng thông mạng.</p>
+                        <button
+                          type="button"
+                          onClick={() => setIsStreamPaused(false)}
+                          className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-mono font-semibold"
+                        >
+                          Nhấn vào đây để xem tiếp luồng trực tiếp
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Overlay thông số camera */}
+                    <div className="absolute bottom-2 left-2 bg-black/80 px-2.5 py-1 rounded text-[11px] font-mono text-zinc-300 border border-zinc-800 flex items-center gap-2">
+                      <span className="text-emerald-400 font-bold">NODE: {currentDevice.id}</span>
+                      <span className="text-zinc-500">•</span>
+                      <span className="text-zinc-400">{currentDevice.location}</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* GIAO DIỆN KHI NODE CHƯA ĐƯỢC GÁN CAMERA */
+                <div className="p-8 rounded border border-zinc-800 bg-[#0e1015] text-center space-y-4">
+                  <div className="w-14 h-14 rounded bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-600">
+                    <CameraOff size={28} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-200 uppercase tracking-wide font-mono">
+                      CHƯA CẤU HÌNH CAMERA CHO VÙNG [{currentDevice.location}]
+                    </h3>
+                    <p className="text-xs text-zinc-400 max-w-md mx-auto mt-1">
+                      Node cảm biến <strong>{currentDevice.name} ({currentDevice.id})</strong> hiện chưa được gán camera giám sát hình ảnh nào. Mỗi node có thể gán 1 camera IP hoặc điện thoại riêng biệt.
+                    </p>
+                  </div>
+
+                  {/* Cụm gán camera */}
+                  {!isViewer && (
+                    <div className="max-w-md mx-auto space-y-3 pt-2">
+                      {/* Nút 1-Click gán camera điện thoại đang có */}
+                      <button
+                        type="button"
+                        onClick={handleAssignPhoneCam}
+                        className="w-full py-2 px-3 rounded bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold text-xs border border-amber-500 transition-colors flex items-center justify-center gap-2 font-mono"
+                      >
+                        <Plus size={14} />
+                        <span>GÁN CAMERA ĐIỆN THOẠI (192.168.1.238:8080) VÀO NODE NÀY</span>
+                      </button>
+
+                      {/* Hoặc nhập camera URL khác */}
+                      <form onSubmit={handleSaveCustomCam} className="flex items-center gap-2 text-xs font-mono">
+                        <input
+                          type="text"
+                          placeholder="Hoặc nhập URL Camera IP khác (ví dụ: http://192.168.1.100:8080/video)"
+                          value={customCamInput}
+                          onChange={(e) => setCustomCamInput(e.target.value)}
+                          className="flex-1 bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 text-xs focus:border-zinc-600 focus:outline-none"
+                        />
+                        <button
+                          type="submit"
+                          className="py-1.5 px-3 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-semibold border border-zinc-700 transition-colors"
+                        >
+                          Lưu
+                        </button>
+                      </form>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
