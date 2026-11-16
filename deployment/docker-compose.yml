@@ -1,0 +1,26 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: fire_mqtt_broker
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
+
+  backend:
+    build: ../backend
+    container_name: fire_fastapi_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend:/code
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - ../.env
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
