@@ -96,7 +96,7 @@ bool  isMuted        = false;
 unsigned long lastFlamePollMillis    = 0;
 unsigned long flameHoldUntilMillis   = 0;
 int           flameLowHitCount       = 0;
-const unsigned long FLAME_HOLD_MS    = 4000; // Giữ cờ cháy tối thiểu 4s để gói Telemetry 3s luôn bắt kịp
+const unsigned long FLAME_HOLD_MS    = 4000; // Giữ cờ cháy tối thiểu 4s để các gói telemetry 1s luôn bắt kịp
 
 // Quản lý bộ đếm thời gian Non-blocking
 unsigned long muteEndTimeMillis      = 0;
@@ -106,14 +106,14 @@ unsigned long lastSirenToggleMillis  = 0;
 bool          sirenHighTone          = false;
 bool          buzzerIsRunning        = false;
 
-// Chu kỳ thực thi chuẩn theo README: Đọc cảm biến 1s, DHT22 2.5s, Telemetry 3s (3000ms)
+// Chu kỳ thực thi: Đọc cảm biến và telemetry mỗi 1s
 unsigned long lastSensorReadMillis   = 0;
 unsigned long lastDhtReadMillis      = 0;
 unsigned long lastTelemetryMillis    = 0;
 unsigned long lastMqttRetryMillis    = 0;
 unsigned long bootBtnPressStart      = 0;
 const unsigned long SENSOR_INTERVAL    = 1000;
-const unsigned long TELEMETRY_INTERVAL = 3000; // Chuẩn README: 3 giây / lần
+const unsigned long TELEMETRY_INTERVAL = 1000; // 1 giây / lần
 
 // Khai báo nguyên mẫu hàm
 void rebuildMqttTopics();
@@ -448,9 +448,11 @@ void publishStatusOnline() {
 
   JsonDocument statusDoc;
   statusDoc["device_id"]        = cfgDeviceId;
-  statusDoc["status"]           = (lifecycleState == STATE_DECOMMISSIONED) ? "DECOMMISSIONED" : "ONLINE";
+  statusDoc["status"]           = (lifecycleState == STATE_ACTIVE) ? "ONLINE" : "OFFLINE";
   statusDoc["firmware_version"] = FIRMWARE_VERSION;
   statusDoc["lifecycle_state"]  = lifecycleToString(lifecycleState);
+  statusDoc["smoke_threshold"]  = gasThresholdPpm;
+  statusDoc["temp_threshold"]   = tempThresholdC;
 
   char statusBuffer[256];
   serializeJson(statusDoc, statusBuffer);
@@ -661,7 +663,7 @@ void connectMQTT() {
   }
 }
 
-// ===================== 11. BẢN TIN TELEMETRY ĐỊNH KỲ 3 GIÂY / LẦN =====================
+// ===================== 11. BẢN TIN TELEMETRY ĐỊNH KỲ 1 GIÂY / LẦN =====================
 void publishTelemetry() {
   // Nếu thiết bị đã bị Admin thu hồi quyền kết nối (DECOMMISSIONED) hoặc đang bảo trì (MAINTENANCE)
   // thì không đẩy Telemetry vào mạng đúng theo đặc tả RBAC Mục 2 trong README.md
@@ -783,7 +785,7 @@ void loop() {
     }
   }
 
-  // 6. Đẩy Telemetry định kỳ mỗi 3 giây / lần (Đúng chuẩn Mục 3.(1) README.md)
+  // 6. Đẩy telemetry định kỳ mỗi 1 giây / lần (Đúng chuẩn Mục 3.(1) README.md)
   if (now - lastTelemetryMillis >= TELEMETRY_INTERVAL) {
     lastTelemetryMillis = now;
     publishTelemetry();

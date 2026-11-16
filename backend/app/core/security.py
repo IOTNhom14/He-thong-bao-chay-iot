@@ -1,16 +1,30 @@
+import re
 from typing import List
-from fastapi import Depends, HTTPException, status, Request
+from uuid import UUID
+from fastapi import Depends, HTTPException, Query, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.database import supabase
+from app.core.config import settings
 
 security = HTTPBearer()
+DEMO_TOKEN_PATTERN = re.compile(r"^demo_token_(admin|operator|viewer)_[0-9]+$")
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+def authenticate_token(token: str) -> dict:
     """
     Xác thực JWT token gửi từ header Authorization: Bearer <token>
     Truy vấn thông tin người dùng và vai trò (role) từ Supabase Auth & public.users
     """
-    token = credentials.credentials
+    demo_match = DEMO_TOKEN_PATTERN.fullmatch(token)
+    if demo_match and settings.ENABLE_DEMO_AUTH:
+        role = demo_match.group(1).upper()
+        return {
+            "id": f"usr_{role.lower()}_demo",
+            "email": f"{role.lower()}@firealert.iot",
+            "full_name": f"{role} (Demo)",
+            "role": role,
+            "is_active": True,
+        }
+
     try:
         # Xác thực Token trực tiếp với Supabase Auth
         auth_response = supabase.auth.get_user(token)
@@ -39,6 +53,12 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             detail=f"Xác thực thất bại: {str(e)}"
         )
 
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    return authenticate_token(credentials.credentials)
+
+def get_current_user_query(token: str = Query(..., alias="access_token")) -> dict:
+    return authenticate_token(token)
+
 def require_roles(allowed_roles: List[str]):
     """
     Dependency kiểm tra quyền hạn (Role-Based Access Control - RBAC)
@@ -59,6 +79,12 @@ def write_audit_log(user_id: str, action: str, request: Request) -> None:
     Ghi Audit Log lưu vết các thao tác quản trị nhạy cảm (Mục 4.5 Yêu cầu bảo mật)
     """
     client_ip = request.client.host if request.client else "unknown"
+    try:
+        UUID(str(user_id))
+    except ValueError:
+        # Demo users are not persisted in Supabase Auth/public.users.
+        return
+
     try:
         supabase.table("audit_logs").insert({
             "user_id": user_id,

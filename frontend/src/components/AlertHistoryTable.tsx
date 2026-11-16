@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AlertApi, type AlertItem } from '../api/alert.api';
 import { useAuth } from '../context/AuthContext';
 import { useCommandTracker } from '../context/CommandTrackerContext';
+import { formatVietnamDateTime, formatVietnamTime } from '../utils/datetime';
 import {
   AlertTriangle,
   Flame,
@@ -276,7 +277,7 @@ export const AlertHistoryTable: React.FC = () => {
 
                       {/* Thời gian phát hiện */}
                       <td className="py-2 px-3 whitespace-nowrap text-zinc-400 text-[11px]">
-                        {new Date(alert.created_at).toLocaleString('vi-VN')}
+                        {formatVietnamDateTime(alert.created_at)}
                       </td>
 
                       {/* Người xác nhận */}
@@ -288,7 +289,7 @@ export const AlertHistoryTable: React.FC = () => {
                             </span>
                             {alert.acknowledged_at && (
                               <div className="text-[10px] text-zinc-500">
-                                {new Date(alert.acknowledged_at).toLocaleTimeString('vi-VN')}
+                                {formatVietnamTime(alert.acknowledged_at)}
                               </div>
                             )}
                           </div>

@@ -8,6 +8,12 @@ export interface SendCommandResponse {
   command_id: string;
 }
 
+export interface CommandStatus {
+  command_id: string;
+  status: 'SENT' | 'ACKNOWLEDGED' | 'FAILED' | 'TIMEOUT';
+  ack_message?: string | null;
+}
+
 export const CommandApi = {
   // Gửi lệnh điều khiển tới thiết bị qua HTTP API (FastAPI /devices/{id}/control hoặc Gateway)
   async sendCommand(
@@ -42,12 +48,13 @@ export const CommandApi = {
           };
         } catch {}
       }
-      // Fallback cho chế độ Demo / Kiểm thử đồ án khi Backend chưa kích hoạt xác thực
-      return {
-        success: true,
-        message: `Đã gửi thành công lệnh ${action} tới ${deviceId}`,
-        command_id: `cmd_ack_${Date.now()}`,
-      };
+      throw err;
     }
+  },
+
+  async getCommandStatus(deviceId: string, commandId: string): Promise<CommandStatus | null> {
+    const res = await apiClient.get<any>(`/devices/${deviceId}/commands`);
+    const commands: CommandStatus[] = res.data?.data || res.data || [];
+    return commands.find((command) => command.command_id === commandId) || null;
   },
 };

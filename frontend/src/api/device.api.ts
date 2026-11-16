@@ -4,7 +4,7 @@ export interface DeviceItem {
   id: string;
   name: string;
   location: string;
-  status: 'ONLINE' | 'OFFLINE' | 'DECOMMISSIONED';
+  status: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'DECOMMISSIONED' | 'PROVISIONING';
   temp_threshold: number;
   gas_threshold: number;
   is_muted: boolean;
@@ -17,8 +17,24 @@ export interface DeviceItem {
   latest_gas?: number;
   latest_humidity?: number;
   latest_flame?: boolean;
+  latest_local_alarm?: boolean;
   latest_alarm?: boolean;
   latest_telemetry_time?: number;
+}
+
+const DEVICE_ONLINE_WINDOW_MS = 5000;
+
+export function normalizeDeviceStatus(raw: any): DeviceItem['status'] {
+  if (raw.status === 'DECOMMISSIONED') return 'DECOMMISSIONED';
+  if (raw.status === 'MAINTENANCE') return 'MAINTENANCE';
+
+  const lastSeen = raw.last_seen ? new Date(raw.last_seen).getTime() : 0;
+  const isFresh = lastSeen > 0 && Date.now() - lastSeen <= DEVICE_ONLINE_WINDOW_MS;
+  if ((raw.status === 'ACTIVE' || raw.status === 'ONLINE' || raw.status === 'PROVISIONED') && isFresh) {
+    return 'ONLINE';
+  }
+  if (raw.status === 'REGISTERED' || raw.status === 'PROVISIONED') return 'PROVISIONING';
+  return 'OFFLINE';
 }
 
 export interface TelemetryPoint {
@@ -91,35 +107,28 @@ export const DEFAULT_DEMO_DEVICES: DeviceItem[] = [
 ];
 
 export const DeviceApi = {
-  // Lấy danh sách thiết bị (chuẩn hóa tương thích cả FastAPI và Gateway, có dữ liệu mẫu chống sập)
+  // Lấy danh sách thiết bị từ Gateway API
   async getDevices(): Promise<DeviceItem[]> {
     try {
       const res = await apiClient.get<any>('/devices');
       const rawList: any[] = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-      if (rawList.length > 0) {
-        return rawList.map((dev) => ({
-          ...dev,
-          id: dev.id || dev.device_id,
-          name: dev.name || dev.device_id || 'Thiết bị không tên',
-          location: dev.location || 'Chưa thiết lập vị trí',
-          status:
-            dev.status === 'ACTIVE' || dev.status === 'ONLINE' || dev.status === 'PROVISIONED'
-              ? 'ONLINE'
-              : dev.status === 'DECOMMISSIONED'
-              ? 'DECOMMISSIONED'
-              : 'OFFLINE',
-          temp_threshold: dev.temp_threshold ?? 55,
-          gas_threshold: dev.gas_threshold ?? dev.smoke_threshold ?? 400,
-          is_muted: dev.is_muted ?? false,
-          last_seen: dev.last_seen || null,
-          created_at: dev.created_at || new Date().toISOString(),
-          updated_at: dev.updated_at || new Date().toISOString(),
-        }));
-      }
+      return rawList.map((dev) => ({
+        ...dev,
+        id: dev.id || dev.device_id,
+        name: dev.name || dev.device_id || 'Thiết bị không tên',
+        location: dev.location || 'Chưa thiết lập vị trí',
+        status: normalizeDeviceStatus(dev),
+        temp_threshold: dev.temp_threshold ?? 55,
+        gas_threshold: dev.gas_threshold ?? dev.smoke_threshold ?? 400,
+        is_muted: dev.is_muted ?? false,
+        last_seen: dev.last_seen || null,
+        created_at: dev.created_at || new Date().toISOString(),
+        updated_at: dev.updated_at || new Date().toISOString(),
+      }));
     } catch (err) {
-      console.warn('Backend chưa có dữ liệu hoặc từ chối xác thực, sử dụng danh sách thiết bị chuẩn đồ án:', err);
+      console.error('Không thể tải danh sách thiết bị từ Gateway API:', err);
+      throw err;
     }
-    return DEFAULT_DEMO_DEVICES;
   },
 
   // Lấy chi tiết thiết bị
@@ -133,25 +142,17 @@ export const DeviceApi = {
           id: raw.id || raw.device_id,
           name: raw.name || raw.device_id,
           location: raw.location || '',
-          status:
-            raw.status === 'ACTIVE' || raw.status === 'ONLINE' || raw.status === 'PROVISIONED'
-              ? 'ONLINE'
-              : raw.status === 'DECOMMISSIONED'
-              ? 'DECOMMISSIONED'
-              : 'OFFLINE',
+          status: normalizeDeviceStatus(raw),
           temp_threshold: raw.temp_threshold ?? 55,
           gas_threshold: raw.gas_threshold ?? raw.smoke_threshold ?? 400,
           is_muted: raw.is_muted ?? false,
         };
       }
-    } catch {
-      // Fallback: Tìm trong danh sách toàn bộ thiết bị
-      const all = await this.getDevices();
-      const found = all.find((d) => d.id === id || (d as any).device_id === id);
-      if (found) return found;
+    } catch (err) {
+      console.error(`Không thể tải thiết bị ${id} từ Gateway API:`, err);
+      throw err;
     }
-    const fallback = DEFAULT_DEMO_DEVICES.find((d) => d.id === id) || DEFAULT_DEMO_DEVICES[0];
-    return fallback;
+    throw new Error(`Gateway không trả về dữ liệu cho thiết bị ${id}`);
   },
 
   // Tạo thiết bị mới (Admin)
@@ -162,6 +163,7 @@ export const DeviceApi = {
     temp_threshold?: number;
     gas_threshold?: number;
     camera_url?: string;
+    provision_from_device_id?: string;
     status?: 'ONLINE' | 'OFFLINE';
   }): Promise<DeviceItem> {
     try {
@@ -171,6 +173,7 @@ export const DeviceApi = {
         location: data.location,
         smoke_threshold: data.gas_threshold ?? 400,
         temp_threshold: data.temp_threshold ?? 55,
+        provision_from_device_id: data.provision_from_device_id || null,
         camera_url: data.camera_url || null,
         assigned_user_id: null,
       };
@@ -187,51 +190,69 @@ export const DeviceApi = {
             : data.camera_url
           : null,
       };
-    } catch {
-      return {
-        id: data.id,
-        name: data.name,
-        location: data.location,
-        status: data.status || 'ONLINE',
-        temp_threshold: data.temp_threshold ?? 55,
-        gas_threshold: data.gas_threshold ?? 400,
-        is_muted: false,
-        camera_url: data.camera_url || null,
-        camera_stream_url: data.camera_url
-          ? data.camera_url.includes('/shot.jpg')
-            ? data.camera_url.replace('/shot.jpg', '/video')
-            : data.camera_url
-          : null,
-        last_seen: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+    } catch (err) {
+      console.error(`Không thể tạo thiết bị ${data.id} qua Gateway API:`, err);
+      throw err;
     }
   },
 
   // Hủy vận hành thiết bị (Admin: status = DECOMMISSIONED)
-  async deleteDevice(id: string): Promise<DeviceItem> {
+  async decommissionDevice(id: string): Promise<DeviceItem> {
     try {
       const res = await apiClient.put<any>(`/devices/${id}/status`, { status: 'DECOMMISSIONED' });
       return res.data?.data || res.data;
-    } catch {
-      try {
-        const res = await apiClient.delete<any>(`/devices/${id}`);
-        return res.data?.data || res.data;
-      } catch {
-        return {
-          id,
-          name: id,
-          location: '',
-          status: 'DECOMMISSIONED',
-          temp_threshold: 55,
-          gas_threshold: 400,
-          is_muted: false,
-          last_seen: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-      }
+    } catch (err) {
+      console.error(`Không thể thu hồi thiết bị ${id} qua Gateway API:`, err);
+      throw err;
+    }
+  },
+
+  async updateLifecycle(
+    id: string,
+    status: 'ACTIVE' | 'MAINTENANCE' | 'DECOMMISSIONED'
+  ): Promise<DeviceItem> {
+    const res = await apiClient.put<any>(`/devices/${id}/status`, { status });
+    return res.data?.data || res.data;
+  },
+
+  async updateCamera(id: string, cameraUrl: string | null): Promise<DeviceItem> {
+    const res = await apiClient.put<any>(`/devices/${id}/camera`, {
+      camera_url: cameraUrl,
+    });
+    const raw = res.data?.data || res.data;
+    return {
+      ...raw,
+      id: raw.id || raw.device_id,
+      camera_url: raw.camera_url || null,
+      camera_stream_url: raw.camera_url
+        ? raw.camera_url.includes('/shot.jpg')
+          ? raw.camera_url.replace('/shot.jpg', '/video')
+          : raw.camera_url
+        : null,
+    };
+  },
+
+  getCameraStreamUrl(id: string): string {
+    const token = localStorage.getItem('fire_alert_token');
+    const baseUrl = apiClient.defaults.baseURL || '';
+    return `${baseUrl}/devices/${id}/camera/stream?access_token=${encodeURIComponent(token || '')}`;
+  },
+
+  async provisionDevice(id: string, sourceDeviceId: string): Promise<{ command_id: string }> {
+    const res = await apiClient.post<any>(`/devices/${id}/provision`, {
+      source_device_id: sourceDeviceId,
+    });
+    return res.data?.data || res.data;
+  },
+
+  // Xóa liên kết backend sau khi thiết bị đã được thu hồi
+  async deleteDevice(id: string): Promise<{ device_id: string }> {
+    try {
+      const res = await apiClient.delete<any>(`/devices/${id}`);
+      return res.data?.data || res.data;
+    } catch (err) {
+      console.error(`Không thể xóa liên kết thiết bị ${id} qua Gateway API:`, err);
+      throw err;
     }
   },
 

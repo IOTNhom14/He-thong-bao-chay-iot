@@ -9,6 +9,7 @@ import { AlertHistoryTable } from '../components/AlertHistoryTable';
 import { DeviceApi, type DeviceItem, type TelemetryPoint } from '../api/device.api';
 import { useCommandTracker } from '../context/CommandTrackerContext';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { formatVietnamTime } from '../utils/datetime';
 import {
   Cpu,
   Radio,
@@ -79,6 +80,9 @@ export const DashboardPage: React.FC = () => {
       setDevices((prev) =>
         prev.map((dev) => {
           if (dev.id === telemetry.device_id) {
+            if (dev.status === 'MAINTENANCE' || dev.status === 'DECOMMISSIONED') {
+              return dev;
+            }
             return {
               ...dev,
               status: 'ONLINE',
@@ -86,7 +90,11 @@ export const DashboardPage: React.FC = () => {
               latest_gas: telemetry.gas_ppm,
               latest_humidity: telemetry.humidity,
               latest_flame: telemetry.flame_detected,
-              latest_alarm: telemetry.local_alarm,
+              latest_local_alarm: telemetry.local_alarm,
+              latest_alarm:
+                telemetry.flame_detected ||
+                telemetry.temperature >= dev.temp_threshold ||
+                telemetry.gas_ppm >= dev.gas_threshold,
               is_muted: telemetry.is_muted,
               latest_telemetry_time: telemetry.timestamp,
             };
@@ -95,8 +103,15 @@ export const DashboardPage: React.FC = () => {
         })
       );
 
-      // Nếu có cháy hoặc chuông kêu -> Kích hoạt banner cảnh báo khẩn cấp
-      if (telemetry.flame_detected || telemetry.local_alarm) {
+      const currentDevice = devices.find((device) => device.id === telemetry.device_id);
+      const isThresholdAlarm =
+        telemetry.flame_detected ||
+        telemetry.temperature >= (currentDevice?.temp_threshold ?? 55) ||
+        telemetry.gas_ppm >= (currentDevice?.gas_threshold ?? 400);
+
+      // Chỉ kích hoạt banner khi cảm biến vượt ngưỡng hoặc phát hiện lửa.
+      // local_alarm chỉ phản ánh trạng thái còi, không phải nguyên nhân cảnh báo.
+      if (isThresholdAlarm) {
         setActiveAlarm({
           device_id: telemetry.device_id,
           flame_detected: telemetry.flame_detected,
@@ -112,7 +127,7 @@ export const DashboardPage: React.FC = () => {
     onStatus: (statusPayload) => {
       setDevices((prev) =>
         prev.map((dev) =>
-          dev.id === statusPayload.device_id
+          dev.id === statusPayload.device_id && dev.status !== 'DECOMMISSIONED'
             ? { ...dev, status: statusPayload.status as 'ONLINE' | 'OFFLINE' }
             : dev
         )
@@ -130,12 +145,12 @@ export const DashboardPage: React.FC = () => {
     },
   });
 
-  // Cơ chế dự phòng: Tự động cập nhật dữ liệu định kỳ 5s nếu WebSocket ngắt
+  // Cơ chế dự phòng: cập nhật nhanh khi chưa có WebSocket Gateway.
   useEffect(() => {
     if (!wsConnected) {
       const interval = setInterval(() => {
         fetchDevices();
-      }, 5000);
+      }, 1000);
       return () => clearInterval(interval);
     }
   }, [wsConnected, fetchDevices]);
@@ -488,7 +503,7 @@ export const DashboardPage: React.FC = () => {
                             </td>
                             <td className="py-2.5 px-3 whitespace-nowrap text-zinc-500 text-[11px] tabular-nums">
                               {dev.latest_telemetry_time
-                                ? new Date(dev.latest_telemetry_time * 1000).toLocaleTimeString('vi-VN')
+                                ? formatVietnamTime(dev.latest_telemetry_time * 1000)
                                 : '--'}
                             </td>
                             <td className="py-2.5 px-3 text-right whitespace-nowrap">

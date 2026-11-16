@@ -110,17 +110,6 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
               handleTelemetry(deviceId, msg.data);
               options.onTelemetry?.(msg.data);
 
-              // Kiểm tra cảnh báo tức thời
-              if (msg.data.flame_detected || msg.data.local_alarm) {
-                options.onAlarm?.({
-                  device_id: deviceId,
-                  flame_detected: msg.data.flame_detected,
-                  local_alarm: msg.data.local_alarm,
-                  temperature: msg.data.temperature,
-                  gas_ppm: msg.data.gas_ppm,
-                  timestamp: msg.data.timestamp,
-                });
-              }
             }
             break;
 

@@ -26,7 +26,7 @@ class FireRuleEngine:
         alert_msg = ""
 
         # MỨC 1: BÁO ĐỘNG ĐỎ KHẨN CẤP (Phát hiện lửa hoặc cả khói VÀ nhiệt độ đều vượt ngưỡng)
-        if data.flame_detected or (data.gas_ppm > smoke_threshold and (data.temperature or 0) > temp_threshold):
+        if data.flame_detected or (data.gas_ppm >= smoke_threshold and (data.temperature or 0) >= temp_threshold):
             alert_type = "FIRE_EMERGENCY"
             trigger_val = data.gas_ppm
             threshold_val = smoke_threshold
@@ -39,7 +39,7 @@ class FireRuleEngine:
                 f"- Còi tại chỗ: <b>{'ĐANG HÚ' if data.local_alarm else 'ĐÃ TẮT'}</b>"
             )
         # MỨC 2: CẢNH BÁO NỒNG ĐỘ KHÓI / KHÍ GAS CAO
-        elif data.gas_ppm > smoke_threshold:
+        elif data.gas_ppm >= smoke_threshold:
             alert_type = "SMOKE_WARNING"
             trigger_val = data.gas_ppm
             threshold_val = smoke_threshold
@@ -50,7 +50,7 @@ class FireRuleEngine:
                 f"- Nhiệt độ hiện tại: {data.temperature}°C"
             )
         # MỨC 3: CẢNH BÁO NHIỆT ĐỘ TĂNG CAO BẤT THƯỜNG
-        elif data.temperature and data.temperature > temp_threshold:
+        elif data.temperature is not None and data.temperature >= temp_threshold:
             alert_type = "HIGH_TEMP_WARNING"
             trigger_val = data.temperature
             threshold_val = temp_threshold

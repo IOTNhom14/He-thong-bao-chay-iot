@@ -32,10 +32,11 @@ const COMMAND_TIMEOUT_MS = 10000; // 10 giây timeout theo yêu cầu đề bài
 
 export const CommandTrackerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isViewer } = useAuth();
-  const { addToast, updateToast, showError, showSuccess } = useToast();
+  const { updateToast, removeToast, showError, showSuccess } = useToast();
 
   const [pendingCommands, setPendingCommands] = useState<Record<string, PendingCommand>>({});
   const timeoutTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pollTimersRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const pendingCommandsRef = useRef<Record<string, PendingCommand>>({});
 
   // Luôn đồng bộ ref để tránh closure stale trong setTimeout và WebSocket callbacks
@@ -54,6 +55,10 @@ export const CommandTrackerProvider: React.FC<{ children: React.ReactNode }> = (
         if (timeoutTimersRef.current[command_id]) {
           clearTimeout(timeoutTimersRef.current[command_id]);
           delete timeoutTimersRef.current[command_id];
+        }
+        if (pollTimersRef.current[command_id]) {
+          clearInterval(pollTimersRef.current[command_id]);
+          delete pollTimersRef.current[command_id];
         }
 
         // 2. Xóa khỏi danh sách chờ ACK
@@ -86,6 +91,7 @@ export const CommandTrackerProvider: React.FC<{ children: React.ReactNode }> = (
       unsubscribe();
       // Cleanup all pending timers on unmount
       Object.values(timeoutTimersRef.current).forEach((timer) => clearTimeout(timer));
+      Object.values(pollTimersRef.current).forEach((timer) => clearInterval(timer));
     };
   }, [updateToast]);
 
@@ -149,15 +155,6 @@ export const CommandTrackerProvider: React.FC<{ children: React.ReactNode }> = (
           [commandId]: newCmd,
         }));
 
-        // Hiển thị Toast chờ phản hồi ACK (duration = 0 để không tự tắt trước khi có kết quả)
-        addToast({
-          id: commandId,
-          type: 'pending',
-          title: `Đang gửi lệnh: ${displayLabel}`,
-          message: `Mã lệnh: ${commandId}. Đang đợi phản hồi ACK từ ESP32 qua WebSocket... (Tối đa 10s)`,
-          duration: 0,
-        });
-
         // Thiết lập bộ đếm thời gian Timeout 10 giây
         timeoutTimersRef.current[commandId] = setTimeout(() => {
           // Kiểm tra xem lệnh còn đang chờ không
@@ -168,16 +165,43 @@ export const CommandTrackerProvider: React.FC<{ children: React.ReactNode }> = (
               return next;
             });
             delete timeoutTimersRef.current[commandId];
+            if (pollTimersRef.current[commandId]) {
+              clearInterval(pollTimersRef.current[commandId]);
+              delete pollTimersRef.current[commandId];
+            }
 
-            // Hiển thị Toast cảnh báo Timeout
-            updateToast(commandId, {
-              type: 'error',
-              title: `Hết thời gian chờ (Timeout 10s) - ${displayLabel}`,
-              message: `Thiết bị ${deviceId} không phản hồi ACK sau 10 giây cho mã lệnh [${commandId}]. Thiết bị có thể đang ngoại tuyến hoặc mất kết nối MQTT.`,
-              duration: 8000,
-            });
+            removeToast(commandId);
           }
         }, COMMAND_TIMEOUT_MS);
+
+        pollTimersRef.current[commandId] = setInterval(async () => {
+          try {
+            const command = await CommandApi.getCommandStatus(deviceId, commandId);
+            if (!command || (command.status !== 'ACKNOWLEDGED' && command.status !== 'FAILED')) {
+              return;
+            }
+
+            clearInterval(pollTimersRef.current[commandId]);
+            delete pollTimersRef.current[commandId];
+            clearTimeout(timeoutTimersRef.current[commandId]);
+            delete timeoutTimersRef.current[commandId];
+            setPendingCommands((prev) => {
+              const next = { ...prev };
+              delete next[commandId];
+              return next;
+            });
+            updateToast(commandId, {
+              type: command.status === 'ACKNOWLEDGED' ? 'success' : 'error',
+              title: command.status === 'ACKNOWLEDGED'
+                ? `ESP32 phản hồi thành công: ${displayLabel}`
+                : `ESP32 báo lỗi thực thi: ${displayLabel}`,
+              message: command.ack_message || `Thiết bị ${deviceId} đã cập nhật trạng thái lệnh.`,
+              duration: 5000,
+            });
+          } catch {
+            // Giữ trạng thái chờ; bộ đếm timeout sẽ báo lỗi rõ ràng nếu cần.
+          }
+        }, 1500);
 
         return res;
       } catch (err: any) {
@@ -195,7 +219,7 @@ export const CommandTrackerProvider: React.FC<{ children: React.ReactNode }> = (
         return null;
       }
     },
-    [isViewer, showError, addToast, updateToast]
+    [isViewer, showError, updateToast, removeToast]
   );
 
   // Xử lý xác nhận giải quyết cảnh báo

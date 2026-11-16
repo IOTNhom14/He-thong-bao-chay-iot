@@ -3,7 +3,7 @@ import type { DeviceItem, TelemetryPoint } from '../api/device.api';
 
 export interface DeviceSnapshot {
   device_id: string;
-  status: 'ONLINE' | 'OFFLINE' | 'DECOMMISSIONED';
+  status: DeviceItem['status'];
   telemetry?: TelemetryPoint;
   last_seen?: number;
 }
@@ -31,7 +31,7 @@ interface DeviceState {
   // Lịch sử chuỗi dữ liệu đo đạc cảm biến theo device_id (dùng vẽ đồ thị recharts)
   telemetryByDevice: Record<string, TelemetryPoint[]>;
   // Trạng thái kết nối gần nhất theo device_id
-  statusByDevice: Record<string, 'ONLINE' | 'OFFLINE' | 'DECOMMISSIONED'>;
+  statusByDevice: Record<string, DeviceItem['status']>;
   // Phản hồi lệnh gần nhất theo device_id
   acksByDevice: Record<string, AckItem>;
   // Cảnh báo sự cố hiện tại theo device_id
@@ -41,7 +41,7 @@ interface DeviceState {
   setDevices: (devices: DeviceItem[]) => void;
   applySnapshot: (snapshots: DeviceSnapshot[]) => void;
   handleTelemetry: (deviceId: string, telemetry: TelemetryPoint) => void;
-  handleStatus: (deviceId: string, status: 'ONLINE' | 'OFFLINE' | 'DECOMMISSIONED', reason?: string) => void;
+  handleStatus: (deviceId: string, status: DeviceItem['status'], reason?: string) => void;
   handleAck: (deviceId: string, ack: { command_id: string; status: 'SUCCESS' | 'FAILED'; message: string }) => void;
   clearAlarm: (deviceId: string) => void;
   updateDeviceCamera: (deviceId: string, cameraUrl: string | null, cameraStreamUrl?: string | null) => void;
@@ -87,7 +87,12 @@ export const useDeviceStore = create<DeviceState>((set) => ({
             latest_gas: snap.telemetry?.gas_ppm,
             latest_humidity: snap.telemetry?.humidity,
             latest_flame: snap.telemetry?.flame_detected,
-            latest_alarm: snap.telemetry?.local_alarm,
+            latest_local_alarm: snap.telemetry?.local_alarm,
+            latest_alarm: Boolean(
+              snap.telemetry?.flame_detected ||
+              (snap.telemetry?.temperature ?? 0) >= nextDevices[devId].temp_threshold ||
+              (snap.telemetry?.gas_ppm ?? 0) >= nextDevices[devId].gas_threshold
+            ),
             is_muted: snap.telemetry?.is_muted ?? nextDevices[devId].is_muted,
             latest_telemetry_time: snap.telemetry?.timestamp,
           };
@@ -118,7 +123,12 @@ export const useDeviceStore = create<DeviceState>((set) => ({
             latest_gas: telemetry.gas_ppm,
             latest_humidity: telemetry.humidity,
             latest_flame: telemetry.flame_detected,
-            latest_alarm: telemetry.local_alarm,
+            latest_local_alarm: telemetry.local_alarm,
+            latest_alarm: Boolean(
+              telemetry.flame_detected ||
+              telemetry.temperature >= (existing?.temp_threshold ?? 55) ||
+              telemetry.gas_ppm >= (existing?.gas_threshold ?? 400)
+            ),
             is_muted: telemetry.is_muted,
             latest_telemetry_time: telemetry.timestamp,
           }
@@ -137,7 +147,12 @@ export const useDeviceStore = create<DeviceState>((set) => ({
             latest_gas: telemetry.gas_ppm,
             latest_humidity: telemetry.humidity,
             latest_flame: telemetry.flame_detected,
-            latest_alarm: telemetry.local_alarm,
+            latest_local_alarm: telemetry.local_alarm,
+            latest_alarm: Boolean(
+              telemetry.flame_detected ||
+              telemetry.temperature >= 55 ||
+              telemetry.gas_ppm >= 400
+            ),
             latest_telemetry_time: telemetry.timestamp,
           };
 
@@ -146,7 +161,10 @@ export const useDeviceStore = create<DeviceState>((set) => ({
       const updatedPoints = [...currentPoints, telemetry].slice(-MAX_HISTORY_POINTS);
 
       // 3. Quản lý trạng thái cảnh báo cháy / khí gas
-      const isAlarmActive = telemetry.flame_detected || telemetry.local_alarm;
+      const isAlarmActive =
+        telemetry.flame_detected ||
+        telemetry.temperature >= (existing?.temp_threshold ?? 55) ||
+        telemetry.gas_ppm >= (existing?.gas_threshold ?? 400);
       const updatedAlarm: AlarmItem | null = isAlarmActive
         ? {
             device_id: deviceId,

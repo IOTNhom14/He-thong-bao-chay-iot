@@ -1,4 +1,8 @@
 import json
+import threading
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import paho.mqtt.client as mqtt
 from pydantic import ValidationError
@@ -14,9 +18,13 @@ class MQTTWorker:
     Dịch vụ nền quản lý kết nối MQTT Broker và điều phối xử lý bản tin IoT
     """
     def __init__(self):
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="FastAPI_Backend_Worker")
+        client_id = f"FastAPI_Backend_Worker_{uuid.uuid4().hex[:12]}"
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
         self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
+        self._connected_event = threading.Event()
+        self._message_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mqtt-message")
 
     def start(self) -> None:
         print(f"[MQTT] Đang kết nối tới Broker {settings.MQTT_BROKER_HOST}:{settings.MQTT_BROKER_PORT}...")
@@ -26,10 +34,13 @@ class MQTTWorker:
     def stop(self) -> None:
         self.client.loop_stop()
         self.client.disconnect()
+        self._connected_event.clear()
+        self._message_executor.shutdown(wait=True, cancel_futures=True)
         print("[MQTT] Đã ngắt kết nối an toàn khỏi Broker.")
 
     def on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code == 0:
+            self._connected_event.set()
             print("[MQTT] Đã kết nối Broker thành công! Đang đăng ký các Topic...")
             client.subscribe("fire_alert/devices/+/telemetry", qos=1)
             client.subscribe("fire_alert/devices/+/status", qos=1)
@@ -37,11 +48,30 @@ class MQTTWorker:
         else:
             print(f"[MQTT ERROR] Kết nối thất bại với mã lỗi: {reason_code}")
 
+    def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
+        self._connected_event.clear()
+        print(f"[MQTT] Mất kết nối broker (mã lỗi: {reason_code}); đang tự động kết nối lại...")
+
     def publish_command(self, device_id: str, payload: dict) -> None:
         """Gửi lệnh điều khiển xuống vi điều khiển ESP32"""
+        if not self.client.is_connected() and not self._connected_event.wait(timeout=5):
+            raise RuntimeError("MQTT worker chưa kết nối broker sau 5 giây chờ reconnect")
+
         topic = f"fire_alert/devices/{device_id}/commands"
-        self.client.publish(topic, json.dumps(payload), qos=1)
-        print(f"[MQTT] Đã phát lệnh xuống topic {topic}: {payload}")
+        encoded_payload = json.dumps(payload)
+        for attempt in range(2):
+            result = self.client.publish(topic, encoded_payload, qos=1)
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                print(f"[MQTT] Đã phát lệnh xuống topic {topic}: {payload}")
+                return
+
+            if result.rc != mqtt.MQTT_ERR_NO_CONN or attempt == 1:
+                raise RuntimeError(f"Không thể phát lệnh MQTT (mã lỗi {result.rc})")
+
+            self._connected_event.clear()
+            if not self._connected_event.wait(timeout=5):
+                raise RuntimeError("MQTT worker mất kết nối khi phát lệnh và không reconnect kịp thời")
+            time.sleep(0.1)
 
     def on_message(self, client, userdata, msg):
         topic = msg.topic
@@ -51,12 +81,18 @@ class MQTTWorker:
             print(f"[MQTT DROP] Bản tin không phải định dạng JSON hợp lệ: {topic}")
             return
 
-        if topic.endswith("/telemetry"):
-            self._handle_telemetry(raw_data)
-        elif topic.endswith("/status"):
-            self._handle_status(raw_data)
-        elif topic.endswith("/ack"):
-            self._handle_ack(raw_data)
+        self._message_executor.submit(self._dispatch_message, topic, raw_data)
+
+    def _dispatch_message(self, topic: str, raw_data: dict) -> None:
+        try:
+            if topic.endswith("/telemetry"):
+                self._handle_telemetry(raw_data)
+            elif topic.endswith("/status"):
+                self._handle_status(raw_data)
+            elif topic.endswith("/ack"):
+                self._handle_ack(raw_data)
+        except Exception as exc:
+            print(f"[MQTT ERROR] Lỗi xử lý bản tin {topic}: {exc}")
 
     def _handle_telemetry(self, raw_data: dict) -> None:
         try:
@@ -106,7 +142,14 @@ class MQTTWorker:
         if not dev_res.data or dev_res.data[0].get("status") == "DECOMMISSIONED":
             return
 
-        new_status = "ACTIVE" if data.status == "ONLINE" else "OFFLINE"
+        if data.lifecycle_state == "DECOMMISSIONED":
+            new_status = "DECOMMISSIONED"
+        elif data.lifecycle_state == "MAINTENANCE":
+            new_status = "MAINTENANCE"
+        elif data.lifecycle_state == "ACTIVE" or data.status == "ONLINE":
+            new_status = "ACTIVE"
+        else:
+            new_status = "OFFLINE"
         now_iso = datetime.now(timezone.utc).isoformat()
         
         update_payload = {"status": new_status, "last_seen": now_iso}
@@ -139,6 +182,8 @@ class MQTTWorker:
             new_status = "ACKNOWLEDGED" if data.status == "SUCCESS" else "FAILED"
             supabase.table("command_logs").update({
                 "status": new_status,
+                "ack_message": data.message,
+                "ack_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }).eq("id", int(cmd_id_str)).execute()
             print(f"[COMMAND ACK] Thiết bị {data.device_id} xác nhận lệnh #{cmd_id_str}: {new_status}")

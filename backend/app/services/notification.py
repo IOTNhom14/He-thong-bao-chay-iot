@@ -5,21 +5,50 @@ from app.core.config import settings
 
 def capture_camera_snapshot(camera_url: Optional[str] = None, timeout: float = 3.5) -> Optional[bytes]:
     """
-    Kéo 1 frame ảnh JPEG thời gian thực từ camera (IP Webcam / ESP32-CAM).
+    Lấy một frame JPEG từ endpoint ảnh hoặc MJPEG stream của camera.
     """
     target_url = camera_url or getattr(settings, "CAMERA_SNAPSHOT_URL", "")
     if not target_url:
         return None
+
+    auth = None
+    if settings.CAMERA_HTTP_USERNAME or settings.CAMERA_HTTP_PASSWORD:
+        auth = (settings.CAMERA_HTTP_USERNAME, settings.CAMERA_HTTP_PASSWORD)
+
+    client_timeout = httpx.Timeout(connect=5.0, read=timeout, write=5.0, pool=5.0)
     try:
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.get(target_url)
-            if resp.status_code == 200 and resp.content:
-                print(f"[CAMERA] Đã chụp ảnh thành công từ {target_url} ({len(resp.content)} bytes)")
-                return resp.content
-            else:
-                print(f"[CAMERA WARN] Phản hồi HTTP {resp.status_code} từ {target_url}")
-    except Exception as e:
-        print(f"[CAMERA ERROR] Không thể kết nối tới Camera ({target_url}): {e}")
+        with httpx.Client(timeout=client_timeout, follow_redirects=True, auth=auth) as client:
+            with client.stream("GET", target_url) as resp:
+                if resp.status_code != 200:
+                    print(f"[CAMERA WARN] Phản hồi HTTP {resp.status_code} từ {target_url}")
+                    return None
+
+                content_type = resp.headers.get("content-type", "").lower()
+                if content_type.startswith("image/"):
+                    image = resp.read()
+                    if image:
+                        print(f"[CAMERA] Đã chụp ảnh thành công từ {target_url} ({len(image)} bytes)")
+                        return image
+                    return None
+
+                if "multipart/" not in content_type and not target_url.rstrip("/").endswith(("/video", "/mjpeg")):
+                    print(f"[CAMERA WARN] Endpoint không trả về ảnh hoặc MJPEG: {content_type or 'unknown'}")
+                    return None
+
+                buffer = bytearray()
+                for chunk in resp.iter_bytes():
+                    buffer.extend(chunk)
+                    start = buffer.find(b"\xff\xd8")
+                    if start >= 0:
+                        end = buffer.find(b"\xff\xd9", start + 2)
+                        if end >= 0:
+                            image = bytes(buffer[start:end + 2])
+                            print(f"[CAMERA] Đã trích frame JPEG từ MJPEG {target_url} ({len(image)} bytes)")
+                            return image
+                    if len(buffer) > 2 * 1024 * 1024:
+                        del buffer[:-64 * 1024]
+    except httpx.HTTPError as exc:
+        print(f"[CAMERA ERROR] Không thể kết nối tới Camera ({target_url}): {exc}")
     return None
 
 def _send_telegram_worker(message: str, camera_url: Optional[str] = None, attach_photo: bool = True) -> None:

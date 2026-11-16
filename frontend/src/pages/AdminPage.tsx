@@ -7,6 +7,7 @@ import { SettingsApi, type ThresholdSettings } from '../api/settings.api';
 import { AuditApi, type AuditLogItem } from '../api/audit.api';
 import { useToast } from '../context/ToastContext';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { formatVietnamDate, formatVietnamDateTime } from '../utils/datetime';
 import {
   Users,
   Cpu,
@@ -179,6 +180,7 @@ export const AdminPage: React.FC = () => {
     temp_threshold: 55,
     gas_threshold: 400,
     camera_url: '',
+    provision_from_device_id: 'ESP_TEST02',
   });
 
   const fetchDevices = useCallback(async () => {
@@ -187,7 +189,7 @@ export const AdminPage: React.FC = () => {
       const data = await DeviceApi.getDevices();
       setDevices(data);
     } catch (err: any) {
-      showError('Lỗi lấy danh sách thiết bị', err.response?.data?.error || err.message);
+      showError('Lỗi lấy danh sách thiết bị', err.response?.data?.detail || err.response?.data?.error || err.message);
     } finally {
       setIsLoadingDevices(false);
     }
@@ -203,10 +205,18 @@ export const AdminPage: React.FC = () => {
       await DeviceApi.createDevice(newDeviceData);
       showSuccess('Tạo thiết bị thành công', `Đã thêm thiết bị mới: ${newDeviceData.id}`);
       setIsAddDeviceModalOpen(false);
-      setNewDeviceData({ id: '', name: '', location: '', temp_threshold: 55, gas_threshold: 400, camera_url: '' });
+      setNewDeviceData({
+        id: '',
+        name: '',
+        location: '',
+        temp_threshold: 55,
+        gas_threshold: 400,
+        camera_url: '',
+        provision_from_device_id: 'ESP_TEST02',
+      });
       fetchDevices();
     } catch (err: any) {
-      showError('Tạo thiết bị thất bại', err.response?.data?.error || err.message);
+      showError('Tạo thiết bị thất bại', err.response?.data?.detail || err.response?.data?.error || err.message);
     }
   };
 
@@ -219,11 +229,64 @@ export const AdminPage: React.FC = () => {
       return;
     }
     try {
-      await DeviceApi.deleteDevice(device.id);
+      await DeviceApi.decommissionDevice(device.id);
       showSuccess('Thu hồi thiết bị thành công', `Thiết bị ${device.id} đã chuyển trạng thái DECOMMISSIONED.`);
       fetchDevices();
     } catch (err: any) {
-      showError('Lỗi thu hồi thiết bị', err.response?.data?.error || err.message);
+      showError('Lỗi thu hồi thiết bị', err.response?.data?.detail || err.response?.data?.error || err.message);
+    }
+  };
+
+  const handleLifecycleChange = async (
+    device: DeviceItem,
+    nextStatus: 'ACTIVE' | 'MAINTENANCE'
+  ) => {
+    try {
+      await DeviceApi.updateLifecycle(device.id, nextStatus);
+      showSuccess(
+        'Cập nhật vòng đời thành công',
+        `${device.id} đã chuyển sang ${nextStatus === 'ACTIVE' ? 'ACTIVE' : 'MAINTENANCE'}.`
+      );
+      fetchDevices();
+    } catch (err: any) {
+      showError(
+        'Lỗi cập nhật vòng đời',
+        err.response?.data?.detail || err.response?.data?.error || err.message
+      );
+    }
+  };
+
+  const handleDeleteDeviceConnection = async (device: DeviceItem) => {
+    if (!window.confirm(`Xóa liên kết backend của thiết bị ${device.id}? Có thể dùng ID này làm nguồn provision cho ESP32.`)) {
+      return;
+    }
+    try {
+      await DeviceApi.deleteDevice(device.id);
+      showSuccess('Đã xóa kết nối', `Liên kết backend của ${device.id} đã được xóa.`);
+      fetchDevices();
+    } catch (err: any) {
+      showError(
+        'Lỗi xóa kết nối thiết bị',
+        err.response?.data?.detail || err.response?.data?.error || err.message
+      );
+    }
+  };
+
+  const handleProvisionDevice = async (device: DeviceItem) => {
+    try {
+      const sourceId = newDeviceData.provision_from_device_id.trim();
+      if (!sourceId) {
+        showError('Thiếu ID nguồn', 'Vui lòng nhập ID ESP32 nguồn để provision.');
+        return;
+      }
+      const result = await DeviceApi.provisionDevice(device.id, sourceId);
+      showSuccess('Đã gửi lệnh provision', `Mã lệnh: ${result.command_id}`);
+      fetchDevices();
+    } catch (err: any) {
+      showError(
+        'Provision thiết bị thất bại',
+        err.response?.data?.detail || err.response?.data?.error || err.message
+      );
     }
   };
 
@@ -582,7 +645,7 @@ export const AdminPage: React.FC = () => {
 
                           {/* Ngày tạo */}
                           <td className="py-2.5 px-3 whitespace-nowrap text-zinc-400 text-[11px]">
-                            {new Date(u.created_at).toLocaleDateString('vi-VN')}
+                            {formatVietnamDate(u.created_at)}
                           </td>
 
                           {/* Thao tác */}
@@ -698,19 +761,49 @@ export const AdminPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap text-zinc-400 text-[11px]">
-                          {dev.last_seen ? new Date(dev.last_seen).toLocaleString('vi-VN') : 'Chưa có'}
+                          {dev.last_seen ? formatVietnamDateTime(dev.last_seen) : 'Chưa có'}
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap text-right font-sans">
                           {dev.status !== 'DECOMMISSIONED' ? (
-                            <button
-                              onClick={() => handleDecommissionDevice(dev)}
-                              className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-red-950 text-zinc-300 hover:text-red-300 border border-zinc-700 hover:border-red-800 text-xs transition-colors"
-                              title="Hủy vận hành (status: DECOMMISSIONED)"
-                            >
-                              Thu hồi
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              {dev.status === 'MAINTENANCE' ? (
+                                <button
+                                  onClick={() => handleLifecycleChange(dev, 'ACTIVE')}
+                                  className="px-2.5 py-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 text-xs transition-colors"
+                                >
+                                  Kích hoạt
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleLifecycleChange(dev, 'MAINTENANCE')}
+                                  className="px-2.5 py-1 rounded bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800 text-xs transition-colors"
+                                >
+                                  Bảo trì
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleProvisionDevice(dev)}
+                                className="px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 text-sky-300 border border-sky-800 text-xs transition-colors"
+                                title="Gửi lại lệnh cấp phát tới ESP32 nguồn"
+                              >
+                                Provision
+                              </button>
+                              <button
+                                onClick={() => handleDecommissionDevice(dev)}
+                                className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-red-950 text-zinc-300 hover:text-red-300 border border-zinc-700 hover:border-red-800 text-xs transition-colors"
+                                title="Hủy vận hành (status: DECOMMISSIONED)"
+                              >
+                                Thu hồi
+                              </button>
+                            </div>
                           ) : (
-                            <span className="text-zinc-600 italic text-[11px]">Đã thu hồi</span>
+                            <button
+                              onClick={() => handleDeleteDeviceConnection(dev)}
+                              className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-red-950 text-zinc-400 hover:text-red-300 border border-zinc-700 hover:border-red-800 text-xs transition-colors"
+                              title="Xóa liên kết backend sau khi thu hồi"
+                            >
+                              Xóa kết nối
+                            </button>
                           )}
                         </td>
                       </tr>
@@ -936,7 +1029,7 @@ export const AdminPage: React.FC = () => {
                     {auditLogs.map((log) => (
                       <tr key={log.id} className="hover:bg-zinc-800/40 transition-colors">
                         <td className="py-2 px-3 text-zinc-400 whitespace-nowrap">
-                          {new Date(log.created_at).toLocaleString('vi-VN')}
+                          {formatVietnamDateTime(log.created_at)}
                         </td>
                         <td className="py-2 px-3 text-zinc-200 font-sans font-semibold whitespace-nowrap">
                           {log.username || (log.user_id ? log.user_id.slice(0, 8) + '...' : 'System / Unauth')}
@@ -1235,6 +1328,27 @@ export const AdminPage: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label className="text-zinc-300 block mb-1 font-sans">
+                  ID ESP32 nguồn để cấp phát thiết bị:
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newDeviceData.provision_from_device_id}
+                  onChange={(e) =>
+                    setNewDeviceData((prev) => ({
+                      ...prev,
+                      provision_from_device_id: e.target.value.trim(),
+                    }))
+                  }
+                  className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 font-mono focus:border-zinc-600 focus:outline-none"
+                />
+                <p className="text-[11px] text-zinc-500 mt-1 font-sans">
+                  ESP32 này sẽ nhận lệnh MQTT, đổi sang ID mới và tự kết nối lại.
+                </p>
+              </div>
+
               <div className="pt-2 flex items-center justify-end gap-2 font-sans">
                 <button
                   type="button"
@@ -1277,7 +1391,7 @@ export const AdminPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-2 text-zinc-300">
                 <div>
                   <span className="text-zinc-500 block text-[11px]">Thời gian:</span>
-                  <span>{new Date(selectedAuditDetail.created_at).toLocaleString('vi-VN')}</span>
+                  <span>{formatVietnamDateTime(selectedAuditDetail.created_at)}</span>
                 </div>
                 <div>
                   <span className="text-zinc-500 block text-[11px]">Hành động:</span>

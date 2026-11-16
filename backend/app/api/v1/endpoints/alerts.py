@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.database import supabase
@@ -57,7 +58,7 @@ def test_camera_alert(
         f"- Nguồn Camera: <code>{settings.CAMERA_SNAPSHOT_URL}</code>\n"
         f"- Dung lượng ảnh: <b>{len(snapshot):,} bytes</b>\n"
         f"- Người thực hiện: <b>{current_user.get('email', 'Admin')}</b>\n"
-        f"- Thời gian: <code>{datetime.now().strftime('%H:%M:%S %d/%m/%Y')}</code>\n"
+        f"- Thời gian: <code>{datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).strftime('%H:%M:%S %d/%m/%Y')}</code>\n"
         "<i>Hệ thống giám sát hình ảnh thời gian thực đã hoạt động bình thường!</i>"
     )
 

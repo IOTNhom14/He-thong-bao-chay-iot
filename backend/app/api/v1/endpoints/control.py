@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from uuid import UUID
 
 from app.core.database import supabase
 from app.core.security import require_roles, write_audit_log
@@ -6,6 +7,28 @@ from app.schemas.control import ControlCommandRequest
 from app.mqtt.worker import mqtt_worker
 
 router = APIRouter(prefix="/devices", tags=["Điều Khiển Cơ Cấu Chấp Hành"])
+
+@router.get("/{device_id}/commands", summary="Lấy trạng thái các lệnh điều khiển gần nhất")
+def list_device_commands(
+    device_id: str,
+    current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR", "VIEWER"]))
+):
+    res = (
+        supabase.table("command_logs")
+        .select("*")
+        .eq("device_id", device_id)
+        .order("created_at", desc=True)
+        .limit(50)
+        .execute()
+    )
+    return [
+        {
+            **command,
+            "command_id": f"cmd_{command['id']}",
+            "params": command.get("parameters") or {},
+        }
+        for command in res.data
+    ]
 
 @router.post("/{device_id}/control", status_code=202, summary="Gửi lệnh điều khiển xuống ESP32 (Chỉ ADMIN & OPERATOR)")
 def send_control_command(
@@ -26,13 +49,20 @@ def send_control_command(
         raise HTTPException(status_code=400, detail="Thiết bị đã bị thu hồi, không thể nhận lệnh điều khiển")
 
     # 2. Ghi nhận lệnh vào bảng command_logs với trạng thái ban đầu là SENT
-    log_res = supabase.table("command_logs").insert({
+    command_record = {
         "device_id": device_id,
         "action": payload.action,
         "parameters": payload.params,
         "status": "SENT",
-        "initiated_by": current_user["id"]
-    }).execute()
+    }
+    try:
+        UUID(str(current_user["id"]))
+        command_record["initiated_by"] = current_user["id"]
+    except ValueError:
+        # Local demo users do not exist in Supabase Auth/public.users.
+        pass
+
+    log_res = supabase.table("command_logs").insert(command_record).execute()
 
     cmd_record = log_res.data[0]
     command_id_str = f"cmd_{cmd_record['id']}"
@@ -43,7 +73,10 @@ def send_control_command(
         "action": payload.action,
         "params": payload.params
     }
-    mqtt_worker.publish_command(device_id, mqtt_payload)
+    try:
+        mqtt_worker.publish_command(device_id, mqtt_payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     # 4. Ghi Audit Log lưu vết
     write_audit_log(current_user["id"], f"SEND_COMMAND:{payload.action}->To:{device_id}", request)

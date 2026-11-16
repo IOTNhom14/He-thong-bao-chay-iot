@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import type { DeviceItem } from '../api/device.api';
 import { useAuth } from '../context/AuthContext';
 import { useCommandTracker } from '../context/CommandTrackerContext';
+import { formatVietnamTime } from '../utils/datetime';
 import {
   Thermometer,
   Wind,
@@ -15,7 +16,6 @@ import {
   MapPin,
   BellRing,
   Loader2,
-  ChevronDown,
 } from 'lucide-react';
 
 interface DeviceCardProps {
@@ -27,9 +27,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
   const { isViewer } = useAuth();
   const { executeCommand, isDeviceWaitingAck } = useCommandTracker();
 
-  const [isMuteMenuOpen, setIsMuteMenuOpen] = useState(false);
-
   const isOnline = device.status === 'ONLINE';
+  const isMaintenance = device.status === 'MAINTENANCE';
+  const isProvisioning = device.status === 'PROVISIONING';
   const isDecommissioned = device.status === 'DECOMMISSIONED';
   const isWaitingAck = isDeviceWaitingAck(device.id);
 
@@ -37,7 +37,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
   const gas = device.latest_gas ?? 0;
   const humidity = device.latest_humidity ?? 0;
   const hasFlame = Boolean(device.latest_flame);
-  const isAlarming = Boolean(device.latest_alarm);
+  const isAlarming = Boolean(device.latest_local_alarm);
   const isMuted = Boolean(device.is_muted);
 
   // Ngưỡng cảnh báo
@@ -48,7 +48,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
   const isGasWarning = !isGasDanger && gas >= device.gas_threshold - 50 && gas > 0;
 
   // Cảnh báo khẩn cấp
-  const isDanger = hasFlame || isAlarming || isTempDanger || isGasDanger;
+  const isDanger = hasFlame || isTempDanger || isGasDanger;
   const isWarning = !isDanger && (isTempWarning || isGasWarning);
 
   // Tính tỷ lệ thanh đo
@@ -60,16 +60,15 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
     const ts = device.latest_telemetry_time
       ? device.latest_telemetry_time * 1000
       : new Date(device.last_seen!).getTime();
-    return new Date(ts).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return formatVietnamTime(ts);
   };
 
-  const handleMute = async (durationSec: 30 | 60 | 120) => {
-    setIsMuteMenuOpen(false);
+  const handleMute = async () => {
     await executeCommand(
       device.id,
       'MUTE_BUZZER',
-      { duration_sec: durationSec },
-      `Tắt còi ${durationSec}s [${device.id}]`
+      { duration_sec: 86400 },
+      `Tắt còi [${device.id}]`
     );
   };
 
@@ -99,17 +98,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
         <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500" />
       ) : null}
 
-      {/* Banner chờ phản hồi ACK */}
-      {isWaitingAck && (
-        <div className="absolute top-0 right-0 left-0 bg-sky-950 border-b border-sky-500/40 text-sky-200 px-2 py-0.5 text-[11px] font-mono font-semibold flex items-center justify-center gap-1.5 z-10">
-          <Loader2 size={12} className="animate-spin text-sky-400" />
-          <span>Đang chờ ACK từ thiết bị...</span>
-        </div>
-      )}
-
       <div>
         {/* Header: Tên vị trí, ID & Trạng thái kết nối */}
-        <div className={`flex items-start justify-between gap-2 pb-2.5 border-b border-zinc-800/80 ${isWaitingAck ? 'mt-4' : ''}`}>
+        <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-zinc-800/80">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <h3 className="font-semibold text-sm text-zinc-100 truncate" title={device.name}>
@@ -132,6 +123,14 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
             {isDecommissioned ? (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-zinc-900 text-zinc-500 border border-zinc-800">
                 THU HỒI
+              </span>
+            ) : isMaintenance ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-amber-950 text-amber-300 border border-amber-800">
+                BẢO TRÌ
+              </span>
+            ) : isProvisioning ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-sky-950 text-sky-300 border border-sky-800">
+                CHỜ CẤP PHÁT
               </span>
             ) : isDanger ? (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-red-950 text-red-300 border border-red-600 flex items-center gap-1">
@@ -280,8 +279,8 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
           )}
         </div>
 
-        {/* Nút Tắt còi (Dropdown) */}
-        <div className="relative">
+        {/* Nút tắt còi duy nhất */}
+        <div>
           {isViewer ? (
             <button
               type="button"
@@ -293,55 +292,20 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
               <span>Tắt còi (Chỉ đọc)</span>
             </button>
           ) : (
-            <div>
-              <button
-                type="button"
-                disabled={isWaitingAck}
-                onClick={() => setIsMuteMenuOpen((prev) => !prev)}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded bg-amber-950/40 hover:bg-amber-900/40 text-amber-300 border border-amber-600/40 text-xs font-medium transition-colors disabled:opacity-50"
-              >
-                {isWaitingAck ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                ) : (
-                  <VolumeX className="w-3.5 h-3.5 text-amber-400" />
-                )}
-                <span>Ngắt còi tạm thời</span>
-                <ChevronDown className="w-3 h-3 ml-0.5 text-amber-400" />
-              </button>
-
-              {/* Menu thời gian tắt còi */}
-              {isMuteMenuOpen && (
-                <div className="absolute bottom-full left-0 right-0 mb-1.5 p-1 rounded-md bg-[#16181f] border border-zinc-700 shadow-xl z-20 flex flex-col gap-0.5 text-xs">
-                  <div className="px-2 py-1 text-[10px] text-zinc-400 font-semibold border-b border-zinc-800">
-                    Thời gian ngắt còi:
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleMute(30)}
-                    className="flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-amber-500/10 text-zinc-200 hover:text-amber-300 transition-colors"
-                  >
-                    <span>Ngắt còi 30 giây</span>
-                    <span className="font-mono text-amber-400 text-[11px]">30s</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleMute(60)}
-                    className="flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-amber-500/10 text-zinc-200 hover:text-amber-300 transition-colors"
-                  >
-                    <span>Ngắt còi 60 giây (Chuẩn)</span>
-                    <span className="font-mono text-amber-400 text-[11px]">60s</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleMute(120)}
-                    className="flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-amber-500/10 text-zinc-200 hover:text-amber-300 transition-colors"
-                  >
-                    <span>Ngắt còi 120 giây (2 phút)</span>
-                    <span className="font-mono text-amber-400 text-[11px]">120s</span>
-                  </button>
-                </div>
+            <button
+              type="button"
+              disabled={isWaitingAck}
+              onClick={handleMute}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded bg-amber-950/40 hover:bg-amber-900/40 text-amber-300 border border-amber-600/40 text-xs font-medium transition-colors disabled:opacity-50"
+              title="Tắt còi trên ESP32"
+            >
+              {isWaitingAck ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+              ) : (
+                <VolumeX className="w-3.5 h-3.5 text-amber-400" />
               )}
-            </div>
+              <span>Tắt còi</span>
+            </button>
           )}
         </div>
       </div>

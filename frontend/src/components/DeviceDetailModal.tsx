@@ -4,6 +4,7 @@ import { DeviceApi } from '../api/device.api';
 import { useAuth } from '../context/AuthContext';
 import { useCommandTracker } from '../context/CommandTrackerContext';
 import { useDeviceStore } from '../store/deviceStore';
+import { formatVietnamTime } from '../utils/datetime';
 import {
   X,
   Thermometer,
@@ -19,7 +20,6 @@ import {
   Flame,
   CheckCircle2,
   XCircle,
-  Loader2,
   ShieldAlert,
   Camera,
   CameraOff,
@@ -75,9 +75,10 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
   const { executeCommand, isDeviceWaitingAck } = useCommandTracker();
   const [activeTab, setActiveTab] = useState<'REALTIME' | 'HISTORY' | 'CONTROL' | 'CAMERA'>('REALTIME');
   const [isStreamPaused, setIsStreamPaused] = useState(false);
-  const [snapshotKey, setSnapshotKey] = useState(Date.now());
-  const [isCapturing, setIsCapturing] = useState(false);
   const [customCamInput, setCustomCamInput] = useState('');
+  const [isSavingCamera, setIsSavingCamera] = useState(false);
+  const [cameraFeedback, setCameraFeedback] = useState<string | null>(null);
+  const [cameraLoadError, setCameraLoadError] = useState<string | null>(null);
 
   // Lấy dữ liệu thiết bị thực tế từ store (kèm cấu hình camera riêng của từng node)
   const storedDevice = useDeviceStore((state) => state.devices[device.id]);
@@ -90,39 +91,41 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
       ? currentDevice.camera_url.replace('/shot.jpg', '/video')
       : currentDevice.camera_url);
 
-  const activeCameraSnapshot =
-    currentDevice.camera_url ||
-    (activeCameraStream?.includes('/video')
-      ? activeCameraStream.replace('/video', '/shot.jpg')
-      : activeCameraStream);
-
   const handleManualSnapshot = () => {
-    if (!activeCameraSnapshot) return;
-    setIsCapturing(true);
-    const snapUrl = `${activeCameraSnapshot}${activeCameraSnapshot.includes('?') ? '&' : '?'}t=${Date.now()}`;
-    window.open(snapUrl, '_blank');
-    setTimeout(() => {
-      setSnapshotKey(Date.now());
-      setIsCapturing(false);
-    }, 600);
+    if (activeCameraStream) {
+      window.open(DeviceApi.getCameraStreamUrl(currentDevice.id), '_blank', 'noopener,noreferrer');
+    }
   };
 
-  const handleAssignPhoneCam = () => {
-    updateDeviceCamera(
-      currentDevice.id,
-      'http://192.168.1.238:8080/shot.jpg',
-      'http://192.168.1.238:8080/video'
-    );
+  const saveCamera = async (cameraUrl: string | null) => {
+    setIsSavingCamera(true);
+    setCameraFeedback(null);
+    try {
+      const saved = await DeviceApi.updateCamera(currentDevice.id, cameraUrl);
+      updateDeviceCamera(saved.id, saved.camera_url || null, saved.camera_stream_url || null);
+      setCameraFeedback(cameraUrl ? 'Đã lưu cấu hình camera cho node.' : 'Đã gỡ camera khỏi node.');
+      onDeviceUpdated?.();
+    } catch (err: any) {
+      setCameraFeedback(
+        err.response?.data?.detail || err.response?.data?.error || 'Không thể lưu cấu hình camera.'
+      );
+    } finally {
+      setIsSavingCamera(false);
+    }
   };
 
-  const handleUnlinkCam = () => {
-    updateDeviceCamera(currentDevice.id, null, null);
+  const handleAssignPhoneCam = async () => {
+    await saveCamera('http://192.168.1.238:8080/shot.jpg');
   };
 
-  const handleSaveCustomCam = (e: React.FormEvent) => {
+  const handleUnlinkCam = async () => {
+    await saveCamera(null);
+  };
+
+  const handleSaveCustomCam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customCamInput.trim()) return;
-    updateDeviceCamera(currentDevice.id, customCamInput.trim());
+    await saveCamera(customCamInput.trim());
     setCustomCamInput('');
   };
 
@@ -273,7 +276,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
       if (res?.command_id) {
         setActionFeedback({
           type: 'success',
-          message: `Đã phát lệnh [${action}]! Mã: ${res.command_id}. Đang chờ phản hồi ACK từ ESP32 qua WebSocket (Timeout 10s)...`,
+          message: `Đã phát lệnh [${action}]! Mã: ${res.command_id}.`,
         });
         loadCommands();
         onDeviceUpdated?.();
@@ -309,11 +312,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
       const date = new Date(ts);
       const timeStr = isNaN(date.getTime())
         ? '--:--:--'
-        : date.toLocaleTimeString('vi-VN', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-          });
+        : formatVietnamTime(ts);
 
       return {
         time: timeStr,
@@ -350,6 +349,10 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                 className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
                   device.status === 'ONLINE'
                     ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
+                    : device.status === 'MAINTENANCE'
+                    ? 'bg-amber-950 text-amber-300 border-amber-800'
+                    : device.status === 'DECOMMISSIONED'
+                    ? 'bg-zinc-900 text-zinc-500 border-zinc-800'
                     : 'bg-zinc-900 text-zinc-400 border-zinc-700'
                 }`}
               >
@@ -768,19 +771,6 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                 </div>
               )}
 
-              {/* Trạng thái chờ ACK khớp command_id từ WebSocket */}
-              {isDeviceWaitingAck(device.id) && (
-                <div className="p-3 rounded border border-sky-800 bg-sky-950/60 text-sky-200 text-xs flex items-center gap-2 font-mono">
-                  <Loader2 size={16} className="animate-spin text-sky-400 flex-shrink-0" />
-                  <div>
-                    <span className="font-bold">Đang chờ phản hồi ACK từ ESP32 qua WebSocket...</span>
-                    <span className="block text-[11px] text-sky-300 mt-0.5">
-                      Hệ thống tự động lắng nghe và khớp chính xác command_id (Timeout 10s).
-                    </span>
-                  </div>
-                </div>
-              )}
-
               {/* Thông báo kết quả phát lệnh */}
               {actionFeedback && (
                 <div
@@ -950,10 +940,10 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                               </span>
                             </td>
                             <td className="p-2 text-zinc-400">
-                              {new Date(cmd.created_at).toLocaleTimeString('vi-VN')}
+                              {formatVietnamTime(cmd.created_at)}
                             </td>
                             <td className="p-2 text-zinc-300 truncate max-w-xs" title={cmd.ack_message || ''}>
-                              {cmd.ack_message || 'Đang chờ ACK...'}
+                              {cmd.ack_message || 'Chưa có phản hồi'}
                             </td>
                           </tr>
                         ))}
@@ -996,6 +986,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                       <button
                         type="button"
                         onClick={() => setIsStreamPaused((prev) => !prev)}
+                        disabled={isSavingCamera}
                         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-xs font-semibold transition-colors ${
                           isStreamPaused
                             ? 'bg-emerald-950/60 border-emerald-700 text-emerald-300 hover:bg-emerald-900/60'
@@ -1006,15 +997,15 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                         <span>{isStreamPaused ? 'Bật lại video' : 'Tạm dừng'}</span>
                       </button>
 
-                      {/* Nút chụp Snapshot thủ công */}
+                      {/* IP Camera Lite cung cấp MJPEG stream, không có snapshot JPEG riêng */}
                       <button
                         type="button"
                         onClick={handleManualSnapshot}
-                        disabled={isCapturing}
+                        disabled={isSavingCamera}
                         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold border border-amber-500 transition-colors disabled:opacity-50"
                       >
                         <Camera size={13} />
-                        <span>{isCapturing ? 'Đang chụp...' : 'Chụp ảnh'}</span>
+                        <span>Mở stream proxy</span>
                       </button>
 
                       {/* Mở tab ngoài */}
@@ -1034,6 +1025,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                         <button
                           type="button"
                           onClick={handleUnlinkCam}
+                          disabled={isSavingCamera}
                           className="flex items-center gap-1 px-2 py-1.5 rounded bg-red-950/40 hover:bg-red-900/40 text-red-300 border border-red-800/60 text-xs transition-colors"
                           title="Hủy gán camera này khỏi node"
                         >
@@ -1041,23 +1033,31 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                           <span>Gỡ cam</span>
                         </button>
                       )}
+                      {cameraFeedback && (
+                        <span className="text-[11px] text-zinc-400">{cameraFeedback}</span>
+                      )}
                     </div>
                   </div>
 
                   {/* Khung chiếu Video / Snapshot riêng của Node này */}
                   <div className="relative bg-black rounded border border-zinc-800 overflow-hidden flex items-center justify-center min-h-[360px] max-h-[58vh]">
                     {!isStreamPaused ? (
-                      <img
-                        key={snapshotKey}
-                        src={activeCameraStream}
-                        alt={`Live Feed ${currentDevice.name}`}
-                        className="w-full h-auto max-h-[56vh] object-contain"
-                        onError={(e) => {
-                          if (activeCameraSnapshot) {
-                            (e.target as HTMLImageElement).src = `${activeCameraSnapshot}${activeCameraSnapshot.includes('?') ? '&' : '?'}t=${Date.now()}`;
-                          }
-                        }}
-                      />
+                      activeCameraStream && !cameraLoadError ? (
+                        <img
+                          src={DeviceApi.getCameraStreamUrl(currentDevice.id)}
+                          alt={`Live Feed ${currentDevice.name}`}
+                          className="w-full h-auto max-h-[56vh] object-contain"
+                          onLoad={() => setCameraLoadError(null)}
+                          onError={() => setCameraLoadError('Không thể tải MJPEG stream. Kiểm tra Basic Auth camera.')}
+                        />
+                      ) : (
+                        <div className="text-center p-8 space-y-2">
+                          <CameraOff size={32} className="text-zinc-600 mx-auto" />
+                          <p className="text-xs text-zinc-400 font-mono">
+                            {cameraLoadError || 'Đang kết nối tới camera...'}
+                          </p>
+                        </div>
+                      )
                     ) : (
                       <div className="text-center p-8 space-y-2">
                         <Pause size={32} className="text-zinc-600 mx-auto" />
@@ -1102,6 +1102,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                       <button
                         type="button"
                         onClick={handleAssignPhoneCam}
+                        disabled={isSavingCamera}
                         className="w-full py-2 px-3 rounded bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold text-xs border border-amber-500 transition-colors flex items-center justify-center gap-2 font-mono"
                       >
                         <Plus size={14} />
@@ -1115,15 +1116,20 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                           placeholder="Hoặc nhập URL Camera IP khác (ví dụ: http://192.168.1.100:8080/video)"
                           value={customCamInput}
                           onChange={(e) => setCustomCamInput(e.target.value)}
+                          disabled={isSavingCamera}
                           className="flex-1 bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 text-xs focus:border-zinc-600 focus:outline-none"
                         />
                         <button
                           type="submit"
+                          disabled={isSavingCamera}
                           className="py-1.5 px-3 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-semibold border border-zinc-700 transition-colors"
                         >
                           Lưu
                         </button>
                       </form>
+                      {cameraFeedback && (
+                        <p className="text-[11px] text-zinc-400">{cameraFeedback}</p>
+                      )}
                     </div>
                   )}
                 </div>

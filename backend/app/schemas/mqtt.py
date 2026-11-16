@@ -26,6 +26,7 @@ class StatusPayload(BaseModel):
     """Bản tin trạng thái kết nối & LWT từ ESP32/Broker"""
     device_id: str
     status: Literal["ONLINE", "OFFLINE"]
+    lifecycle_state: Optional[Literal["ONBOARDING", "ACTIVE", "MAINTENANCE", "DECOMMISSIONED"]] = None
     firmware_version: Optional[str] = None
     reason: Optional[str] = None
 
