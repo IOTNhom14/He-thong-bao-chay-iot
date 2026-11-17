@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, ArrowLeft, Home } from 'lucide-react';
+import { ShieldAlert, Home } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export const ForbiddenPage: React.FC = () => {
@@ -29,22 +29,14 @@ export const ForbiddenPage: React.FC = () => {
           ) không có quyền truy cập vào phân hệ này. Mọi nỗ lực truy cập trái phép đều được ghi nhận vào nhật ký an ninh hệ thống.
         </p>
 
-        <div className="mt-6 pt-5 border-t border-zinc-800/80 flex items-center justify-center gap-2">
+        <div className="mt-6 pt-5 border-t border-zinc-800/80 flex items-center justify-center">
           <Link
             to="/"
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700 transition-colors"
           >
             <Home className="w-3.5 h-3.5" />
             <span>Về Màn Hình Giám Sát</span>
           </Link>
-          <button
-            type="button"
-            onClick={() => window.history.back()}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded bg-[#0c0e12] hover:bg-zinc-800/60 text-zinc-400 hover:text-zinc-200 text-xs font-medium border border-zinc-800 transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Quay Lại</span>
-          </button>
         </div>
       </div>
     </div>

@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
 from app.core.database import supabase
-from app.core.security import get_current_user, get_current_user_query, require_roles, write_audit_log
+from app.core.security import get_current_user, get_current_user_query, require_roles, require_device_access, write_audit_log
 from app.schemas.device import (
     DeviceCreateRequest,
     DeviceCameraUpdateRequest,
@@ -57,10 +57,16 @@ def _queue_device_command(
 
 @router.get("", summary="Lấy danh sách tất cả thiết bị trong hệ thống")
 def list_devices(current_user: dict = Depends(get_current_user)):
-    """Mọi vai trò (Admin, Operator, Viewer) đều có thể xem danh sách"""
+    """Mọi vai trò đều có thể xem danh sách; OPERATOR chỉ nhận thiết bị được phân công."""
+    user_id = current_user.get("id")
+    user_role = current_user.get("role")
     devices = []
     try:
-        res = supabase.table("devices").select("*").order("created_at", desc=True).execute()
+        query = supabase.table("devices").select("*").order("created_at", desc=True)
+        if user_role == "OPERATOR":
+            query = query.eq("assigned_user_id", str(user_id))
+
+        res = query.execute()
         if res.data:
             for device in res.data:
                 try:
@@ -210,12 +216,13 @@ def change_device_lifecycle_status(
         "device": res.data[0]
     }
 
-@router.put("/{device_id}/camera", summary="Gán hoặc gỡ camera hiện trường")
+@router.put("/{device_id}/camera", summary="Gán hoặc gỡ camera hiện trường (Chỉ ADMIN & OPERATOR sở hữu thiết bị)")
 def update_device_camera(
     device_id: str,
     payload: DeviceCameraUpdateRequest,
     request: Request,
-    current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR"])),
+    device: dict = Depends(require_device_access(["ADMIN", "OPERATOR"])),
+    current_user: dict = Depends(get_current_user),
 ):
     camera_url = payload.camera_url.strip() if payload.camera_url else None
     if camera_url and not camera_url.startswith(("http://", "https://")):
@@ -240,18 +247,10 @@ def update_device_camera(
 @router.get("/{device_id}/camera/snapshot", summary="Lấy ảnh snapshot camera hiện trường")
 def get_device_camera_snapshot(
     device_id: str,
+    device: dict = Depends(require_device_access(["ADMIN", "OPERATOR", "VIEWER"])),
     current_user: dict = Depends(get_current_user),
 ):
-    device_res = (
-        supabase.table("devices")
-        .select("camera_url")
-        .eq("device_id", device_id)
-        .execute()
-    )
-    if not device_res.data:
-        raise HTTPException(status_code=404, detail="Không tìm thấy thiết bị")
-
-    camera_url = device_res.data[0].get("camera_url")
+    camera_url = device.get("camera_url")
     if not camera_url:
         raise HTTPException(status_code=404, detail="Thiết bị chưa được gán camera")
 
@@ -288,18 +287,10 @@ def get_device_camera_snapshot(
 @router.get("/{device_id}/camera/stream", summary="Proxy MJPEG stream camera hiện trường")
 async def get_device_camera_stream(
     device_id: str,
+    device: dict = Depends(require_device_access(["ADMIN", "OPERATOR", "VIEWER"], from_query=True)),
     current_user: dict = Depends(get_current_user_query),
 ):
-    device_res = (
-        supabase.table("devices")
-        .select("camera_url")
-        .eq("device_id", device_id)
-        .execute()
-    )
-    if not device_res.data:
-        raise HTTPException(status_code=404, detail="Không tìm thấy thiết bị")
-
-    camera_url = device_res.data[0].get("camera_url")
+    camera_url = device.get("camera_url")
     if not camera_url:
         raise HTTPException(status_code=404, detail="Thiết bị chưa được gán camera")
 
@@ -412,12 +403,13 @@ def delete_decommissioned_device(
         "device_id": device_id,
     }
 
-@router.put("/{device_id}/thresholds", summary="Cập nhật ngưỡng khói và nhiệt độ từ xa (ADMIN & OPERATOR)")
+@router.put("/{device_id}/thresholds", summary="Cập nhật ngưỡng khói và nhiệt độ từ xa (ADMIN & OPERATOR sở hữu thiết bị)")
 def update_device_thresholds(
     device_id: str,
     payload: ThresholdUpdateRequest,
     request: Request,
-    current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR"]))
+    device: dict = Depends(require_device_access(["ADMIN", "OPERATOR"])),
+    current_user: dict = Depends(get_current_user),
 ):
     res = supabase.table("devices").update({
         "smoke_threshold": payload.smoke_threshold,

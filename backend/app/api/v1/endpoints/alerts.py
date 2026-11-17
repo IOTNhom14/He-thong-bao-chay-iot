@@ -10,15 +10,19 @@ router = APIRouter(prefix="/alerts", tags=["Giám Sát & Xử Lý Cảnh Báo"])
 
 @router.get("", summary="Xem danh sách lịch sử các vụ cảnh báo cháy")
 def list_alerts(limit: int = 50, current_user: dict = Depends(get_current_user)):
-    """Mọi vai trò (Admin, Operator, Viewer) đều có thể xem lịch sử cảnh báo"""
+    """Mọi vai trò đều có thể xem lịch sử; OPERATOR chỉ nhận cảnh báo từ thiết bị mình quản lý."""
+    user_id = current_user.get("id")
+    user_role = current_user.get("role")
     try:
-        res = (
-            supabase.table("alerts")
-            .select("*")
-            .order("triggered_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
+        query = supabase.table("alerts").select("*").order("triggered_at", desc=True)
+        if user_role == "OPERATOR":
+            dev_res = supabase.table("devices").select("device_id").eq("assigned_user_id", str(user_id)).execute()
+            assigned_device_ids = [d["device_id"] for d in (dev_res.data or [])]
+            if not assigned_device_ids:
+                return []
+            query = query.in_("device_id", assigned_device_ids)
+
+        res = query.limit(limit).execute()
         if res.data is not None:
             return res.data
     except Exception as exc:
@@ -26,16 +30,33 @@ def list_alerts(limit: int = 50, current_user: dict = Depends(get_current_user))
 
     return []
 
-@router.put("/{alert_id}/acknowledge", summary="Xác nhận đã xử lý sự cố cháy (Chỉ ADMIN & OPERATOR)")
+@router.put("/{alert_id}/acknowledge", summary="Xác nhận đã xử lý sự cố cháy (Chỉ ADMIN & OPERATOR sở hữu thiết bị)")
 def acknowledge_alert(
     alert_id: int,
     request: Request,
     current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR"]))
 ):
+    user_id = current_user.get("id")
+    user_role = current_user.get("role")
+
+    alert_res = supabase.table("alerts").select("id, device_id, status").eq("id", alert_id).execute()
+    if not alert_res.data:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bản ghi cảnh báo")
+
+    alert_record = alert_res.data[0]
+
+    if user_role == "OPERATOR":
+        dev_res = supabase.table("devices").select("assigned_user_id").eq("device_id", alert_record["device_id"]).execute()
+        if not dev_res.data or str(dev_res.data[0].get("assigned_user_id") or "") != str(user_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Truy cập bị từ chối: Cảnh báo này thuộc thiết bị bạn không được phân công quản lý"
+            )
+
     now_iso = datetime.now(timezone.utc).isoformat()
     res = supabase.table("alerts").update({
         "status": "ACKNOWLEDGED",
-        "acknowledged_by": current_user["id"],
+        "acknowledged_by": str(user_id),
         "resolved_at": now_iso
     }).eq("id", alert_id).execute()
 

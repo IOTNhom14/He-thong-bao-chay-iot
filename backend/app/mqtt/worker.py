@@ -27,6 +27,8 @@ class MQTTWorker:
         self._message_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mqtt-message")
 
     def start(self) -> None:
+        if settings.MQTT_BROKER_USER and settings.MQTT_BROKER_PASSWORD:
+            self.client.username_pw_set(settings.MQTT_BROKER_USER, settings.MQTT_BROKER_PASSWORD)
         print(f"[MQTT] Đang kết nối tới Broker {settings.MQTT_BROKER_HOST}:{settings.MQTT_BROKER_PORT}...")
         self.client.connect_async(settings.MQTT_BROKER_HOST, settings.MQTT_BROKER_PORT, keepalive=60)
         self.client.loop_start()

@@ -1,0 +1,17 @@
+# ==============================================================================
+# MOSQUITTO ACCESS CONTROL LIST (ACL) - NHOM 14 IOT BÁO CHÁY
+# ==============================================================================
+
+# 1. Quyền toàn cục cho Backend Worker (Đọc/ghi trên toàn bộ thiết bị)
+user backend_worker
+topic readwrite fire_alert/devices/+/telemetry
+topic readwrite fire_alert/devices/+/status
+topic readwrite fire_alert/devices/+/commands
+topic readwrite fire_alert/devices/+/ack
+
+# 2. Quy tắc cho từng vi điều khiển / thiết bị ngoại vi (Cô lập theo username %u)
+# %u = username đăng nhập, khớp chính xác với device_id
+pattern readwrite fire_alert/devices/%u/telemetry
+pattern readwrite fire_alert/devices/%u/status
+pattern read fire_alert/devices/%u/commands
+pattern write fire_alert/devices/%u/ack

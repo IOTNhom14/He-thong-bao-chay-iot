@@ -8,7 +8,8 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const { login, isLoading } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -17,7 +18,6 @@ export const LoginPage: React.FC = () => {
   const redirectTarget = searchParams.get('redirect') || '/';
 
   const navigateAfterLogin = (role?: UserRole) => {
-    // Nếu có redirect đích tới /admin và người dùng đăng nhập tài khoản ADMIN:
     if (redirectTarget === '/admin' && role === 'ADMIN') {
       navigate('/admin', { replace: true });
     } else {
@@ -28,14 +28,22 @@ export const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setIsSubmitting(true);
     try {
       await login(email, password);
       const savedUser = localStorage.getItem('fire_alert_user');
       const parsed = savedUser ? JSON.parse(savedUser) : null;
       navigateAfterLogin(parsed?.role);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string; detail?: string } } };
-      setErrorMsg(error.response?.data?.detail || error.response?.data?.error || 'Đăng nhập không thành công. Vui lòng kiểm tra lại thông tin.');
+      const error = err as { response?: { data?: { error?: string; detail?: string; message?: string } } };
+      setErrorMsg(
+        error.response?.data?.detail ||
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        'Tài khoản hoặc mật khẩu không chính xác'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -120,10 +128,10 @@ export const LoginPage: React.FC = () => {
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isSubmitting}
             className="w-full py-2 px-3 rounded bg-red-700 hover:bg-red-600 text-white font-semibold text-xs border border-red-600 flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
           >
-            <span>{isLoading ? 'Đang xác thực...' : 'Đăng nhập ca trực'}</span>
+            <span>{isSubmitting ? 'Đang xác thực...' : 'Đăng nhập ca trực'}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </form>

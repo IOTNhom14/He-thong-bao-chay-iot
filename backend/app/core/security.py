@@ -83,6 +83,67 @@ def require_roles(allowed_roles: List[str]):
         return current_user
     return role_checker
 
+def require_device_access(allowed_roles: List[str] = ["ADMIN", "OPERATOR"], from_query: bool = False):
+    """
+    Dependency kiểm tra quyền truy cập thiết bị (RBAC & BOLA Enforcement):
+    - Kiểm tra role của user có thuộc allowed_roles không.
+    - Tìm kiếm thiết bị theo device_id trong CSDL.
+    - ADMIN: Toàn quyền truy cập mọi thiết bị.
+    - OPERATOR: Bắt buộc assigned_user_id trên thiết bị phải trùng khớp với user_id.
+    - VIEWER: Chỉ có quyền đọc nếu allowed_roles bao gồm VIEWER.
+    """
+    auth_dep = get_current_user_query if from_query else get_current_user
+
+    def dependency(
+        device_id: str,
+        current_user: dict = Depends(auth_dep)
+    ) -> dict:
+        user_role = current_user.get("role")
+        if user_role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Truy cập bị từ chối! Quyền yêu cầu: {allowed_roles}, vai trò hiện tại của bạn: {user_role}."
+            )
+
+        try:
+            dev_res = supabase.table("devices").select("*").eq("device_id", device_id).execute()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Lỗi kiểm tra quyền truy cập thiết bị: {str(exc)}"
+            ) from exc
+
+        if not dev_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Thiết bị không tồn tại"
+            )
+
+        device = dev_res.data[0]
+
+        if user_role == "ADMIN":
+            return device
+
+        if user_role == "OPERATOR":
+            assigned_id = str(device.get("assigned_user_id") or "")
+            user_id = str(current_user.get("id") or "")
+            if not assigned_id or assigned_id != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Truy cập bị từ chối: Bạn không được phân công quản lý thiết bị này."
+                )
+            return device
+
+        if user_role == "VIEWER":
+            return device
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vai trò người dùng không hợp lệ"
+        )
+
+    return dependency
+
 def write_audit_log(user_id: str, action: str, request: Request) -> None:
     """
     Ghi Audit Log lưu vết các thao tác quản trị nhạy cảm (Mục 4.5 Yêu cầu bảo mật)

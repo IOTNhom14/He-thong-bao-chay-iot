@@ -45,16 +45,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, pass: string) => {
-    setIsLoading(true);
-    try {
-      const res = await AuthApi.login(email, pass);
-      localStorage.setItem('fire_alert_token', res.token);
-      localStorage.setItem('fire_alert_user', JSON.stringify(res.user));
-      setToken(res.token);
-      setUser(res.user);
-    } finally {
-      setIsLoading(false);
-    }
+    const res = await AuthApi.login(email, pass);
+    localStorage.setItem('fire_alert_token', res.token);
+    localStorage.setItem('fire_alert_user', JSON.stringify(res.user));
+    setToken(res.token);
+    setUser(res.user);
   };
 
   const logout = () => {

@@ -78,13 +78,37 @@ def create_user(
     current_user: dict = Depends(require_roles(["ADMIN"]))
 ):
     email = payload.email.strip().lower()
-    if not email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email không được để trống")
-    full_name = payload.full_name or payload.username
+    username = payload.username.strip()
+    if not email or not username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email và tên đăng nhập không được để trống"
+        )
+    full_name = payload.full_name or username
     user_id = None
-    created_in_supabase = False
+    auth_created = False
 
-    # 1. Thử tạo tài khoản qua Supabase Auth Admin API
+    try:
+        dup_check = (
+            supabase.table("users")
+            .select("id")
+            .or_(f"email.eq.{email},username.eq.{username}")
+            .limit(1)
+            .execute()
+        )
+        if dup_check.data:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email hoặc tên đăng nhập đã tồn tại trong hệ thống"
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Không thể kiểm tra dữ liệu người dùng: {str(exc)}"
+        ) from exc
+
     try:
         auth_res = supabase.auth.admin.create_user({
             "email": email,
@@ -97,16 +121,22 @@ def create_user(
         })
         if auth_res and auth_res.user:
             user_id = str(auth_res.user.id)
+            auth_created = True
     except Exception as exc:
-        print(f"[AUTH CREATE] Supabase Auth Admin tạo thất bại: {exc}")
+        err_msg = str(exc).lower()
+        if "already registered" in err_msg or "already exists" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email này đã được đăng ký trong hệ thống xác thực"
+            ) from exc
+        print(f"[AUTH CREATE WARN] Supabase Auth Admin không khả dụng, sử dụng local auth: {exc}")
 
     if not user_id:
         user_id = str(uuid.uuid4())
 
-    # 2. Lưu bản ghi vào bảng public.users
     user_data = {
         "id": user_id,
-        "username": payload.username.strip(),
+        "username": username,
         "email": email,
         "password_hash": get_password_hash(payload.password),
         "full_name": full_name,
@@ -117,15 +147,33 @@ def create_user(
 
     try:
         db_res = supabase.table("users").upsert(user_data).execute()
-        if db_res.data:
-            created_in_supabase = True
+        if not db_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Không thể lưu thông tin tài khoản vào cơ sở dữ liệu"
+            )
+    except HTTPException:
+        raise
     except Exception as exc:
-        print(f"[USERS DB] Không thể lưu vào public.users: {exc}")
+        if auth_created and user_id:
+            try:
+                supabase.auth.admin.delete_user(user_id)
+            except Exception:
+                pass
+        err_msg = str(exc).lower()
+        if "duplicate" in err_msg or "23505" in err_msg or "unique" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Tên đăng nhập hoặc email đã được sử dụng"
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi lưu trữ người dùng vào CSDL: {str(exc)}"
+        ) from exc
 
-    user_data["username"] = payload.username
     user_data["assigned_devices"] = []
 
-    write_audit_log(current_user["id"], f"CREATE_USER:{payload.username}:{payload.role}", request)
+    write_audit_log(current_user["id"], f"CREATE_USER:{username}:{payload.role}", request)
     formatted = _format_user_item(user_data, [])
     return {"success": True, "message": "Tạo người dùng thành công", "data": formatted}
 

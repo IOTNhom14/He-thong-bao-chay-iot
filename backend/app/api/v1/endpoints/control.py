@@ -3,7 +3,7 @@ import time
 from uuid import UUID
 
 from app.core.database import supabase
-from app.core.security import require_roles, write_audit_log
+from app.core.security import get_current_user, require_device_access, write_audit_log
 from app.schemas.control import ControlCommandRequest
 from app.mqtt.worker import mqtt_worker
 
@@ -12,7 +12,8 @@ router = APIRouter(prefix="/devices", tags=["Điều Khiển Cơ Cấu Chấp H�
 @router.get("/{device_id}/commands", summary="Lấy trạng thái các lệnh điều khiển gần nhất")
 def list_device_commands(
     device_id: str,
-    current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR", "VIEWER"]))
+    device: dict = Depends(require_device_access(["ADMIN", "OPERATOR", "VIEWER"])),
+    current_user: dict = Depends(get_current_user),
 ):
     res = (
         supabase.table("command_logs")
@@ -31,28 +32,19 @@ def list_device_commands(
         for command in res.data
     ]
 
-@router.post("/{device_id}/control", status_code=202, summary="Gửi lệnh điều khiển xuống ESP32 (Chỉ ADMIN & OPERATOR)")
+@router.post("/{device_id}/control", status_code=202, summary="Gửi lệnh điều khiển xuống ESP32 (Chỉ ADMIN & OPERATOR sở hữu thiết bị)")
 def send_control_command(
     device_id: str,
     payload: ControlCommandRequest,
     request: Request,
-    current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR"]))
+    device: dict = Depends(require_device_access(["ADMIN", "OPERATOR"])),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Gửi lệnh điều khiển cơ cấu chấp hành (MUTE_BUZZER, TEST_ALARM, UPDATE_THRESHOLD).
-    Viewer bị chặn tự động bởi require_roles và trả về 403 Forbidden.
+    Chặn BOLA: OPERATOR chỉ được điều khiển thiết bị được phân công.
     """
-    # 1. Kiểm tra trạng thái thiết bị trong CSDL
-    dev_status = None
-    try:
-        dev_res = supabase.table("devices").select("status").eq("device_id", device_id).execute()
-        if dev_res.data:
-            dev_status = dev_res.data[0].get("status")
-    except Exception as exc:
-        print(f"[CONTROL DB ERROR] Không thể kiểm tra status device: {exc}")
-
-    if not dev_status:
-        raise HTTPException(status_code=404, detail="Thiết bị không tồn tại")
+    dev_status = device.get("status")
     if dev_status == "DECOMMISSIONED":
         raise HTTPException(status_code=400, detail="Thiết bị đã bị thu hồi, không thể nhận lệnh điều khiển")
 

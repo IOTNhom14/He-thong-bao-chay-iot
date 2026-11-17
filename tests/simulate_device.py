@@ -6,6 +6,7 @@ import paho.mqtt.client as mqtt
 BROKER_HOST = "localhost"
 BROKER_PORT = 1883
 DEVICE_ID = "ESP32_FIRE_001"
+DEVICE_TOKEN = "tok_esp32_livingroom_prod_7f8a9b"
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
@@ -15,6 +16,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
 def simulate_fire_alert():
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ESP32_Simulator")
+    client.username_pw_set(DEVICE_ID, DEVICE_TOKEN)
     client.on_connect = on_connect
 
     try:
