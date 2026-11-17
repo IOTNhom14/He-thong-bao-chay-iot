@@ -26,45 +26,53 @@ Hệ thống là một giải pháp IoT toàn diện từ thiết bị biên (Ed
 - **Tự động kết nối lại (Auto-reconnect):** Tự động khôi phục kết nối khi router Wi-Fi hoặc mạng gặp sự cố rồi hoạt động trở lại.
 
 ### Chức năng Giám sát & Báo động đa kênh (Backend/Dashboard)
-- **Web Dashboard:** Hiển thị biểu đồ dữ liệu nhiệt độ, nồng độ khói cập nhật liên tục theo thời gian thực.
-- **Rule Engine:** Đánh giá dữ liệu bất thường và tự động gửi thông báo cảnh báo cháy khẩn cấp về điện thoại người dùng qua Telegram Bot.
+- **Web Dashboard:** Hiển thị biểu đồ dữ liệu nhiệt độ, độ ẩm, nồng độ khói cập nhật liên tục theo thời gian thực.
+- **Giám sát hình ảnh Camera hiện trường:** Hỗ trợ gán Camera IP / điện thoại (IP Webcam / ESP32-CAM) cho từng node, xem Snapshot & Live Stream (MJPEG) trực tiếp trên Web Dashboard.
+- **Rule Engine:** Đánh giá dữ liệu bất thường và tự động gửi thông báo cảnh báo cháy khẩn cấp (kèm ảnh chụp Camera hiện trường nếu có) về điện thoại người dùng qua Telegram Bot.
 
 ### Chức năng Quản lý vòng đời thiết bị (Device Lifecycle)
-- **Quản lý trọn vẹn trạng thái thiết bị:** Đăng ký tạo mới (*Onboarding*) $\rightarrow$ Đang hoạt động (*Active*) $\rightarrow$ Mất kết nối (*Offline*) $\rightarrow$ Bảo trì (*Maintenance*) $\rightarrow$ Khóa / Thu hồi (*Decommissioned*).
+- **Quản lý trọn vẹn trạng thái thiết bị:** Đăng ký tạo mới (*Onboarding* / *Provisioning*) $\rightarrow$ Đang hoạt động (*Active*) $\rightarrow$ Mất kết nối (*Offline*) $\rightarrow$ Bảo trì (*Maintenance*) $\rightarrow$ Khóa / Thu hồi (*Decommissioned*).
 
-### Chức năng Điều khiển từ xa (Remote Control)
-- **Điều khiển qua Web:** Cho phép người dùng gửi lệnh từ Web Dashboard xuống thiết bị để tắt còi báo động tạm thời (*Mute*) hoặc kích hoạt còi thử nghiệm (*Test Alarm*).
-- **Cơ chế xác nhận (ACK):** Nhận gói tin phản hồi xác nhận từ thiết bị để báo cáo lệnh đã thực thi thành công.
+### Chức năng Điều khiển từ xa & Đồng bộ cấu hình (Remote Control)
+- **Điều khiển qua Web:** Cho phép gửi lệnh từ Web Dashboard xuống thiết bị để tắt còi báo động tạm thời (*Mute Buzzer*), kích hoạt còi thử nghiệm (*Test Alarm*), hoặc cập nhật ngưỡng cảnh báo (*Update Threshold* — đồng bộ cả Database lẫn bộ nhớ Flash trên ESP32).
+- **Cơ chế xác nhận (ACK):** Nhận gói tin phản hồi xác nhận từ thiết bị để báo cáo lệnh đã thực thi thành công (`SENT` $\rightarrow$ `ACKNOWLEDGED`).
 
 ---
 
 ## 2. Cơ chế phân quyền người dùng (Role-Based Access Control - RBAC)
 
-Hệ thống áp dụng cơ chế xác thực bảo mật đa lớp (sử dụng Token JWT) và được chia thành 3 vai trò (*Roles*) rõ ràng với các quyền hạn quản lý khác nhau:
+Hệ thống áp dụng cơ chế xác thực bảo mật bằng JWT Token (hỗ trợ cả Local PyJWT và Supabase Auth) và phân quyền chi tiết cho 3 vai trò (*Roles*) kết hợp kiểm tra quyền sở hữu thiết bị (`assigned_user_id`):
 
 ### Vai trò 1: Quản trị viên (Admin)
 *Là người nắm quyền cao nhất, quản lý toàn bộ hệ thống.*
-- **Quản lý người dùng:** Được phép tạo tài khoản mới, phân quyền, khóa hoặc xóa tài khoản của người dùng khác.
-- **Quản lý thiết bị:** Có quyền khởi tạo thiết bị mới (cấp mã `device_id` và token xác thực riêng) hoặc thu hồi quyền kết nối (*Decommission*) để cấm thiết bị đẩy dữ liệu vào mạng.
-- **Cấu hình toàn cục:** Thay đổi ngưỡng cảnh báo cháy mặc định (nhiệt độ, nồng độ khói).
-- **Bảo mật & Giám sát:** Xem được nhật ký hệ thống (*Audit Logs*) để theo dõi lịch sử đăng nhập, lịch sử ai vừa nhấn nút tắt còi và thời gian thực hiện.
+- **Quản lý người dùng:** Tạo tài khoản mới, đổi vai trò, khóa/mở khóa, xóa tài khoản và **gán / hủy gán thiết bị phụ trách (`assigned_user_id`)** cho từng Operator.
+- **Quản lý thiết bị:** Khởi tạo thiết bị mới, cấp phát lại ID (`PROVISION_DEVICE`), chuyển trạng thái vòng đời (`ACTIVE`, `MAINTENANCE`, `DECOMMISSIONED`) và xóa liên kết thiết bị đã thu hồi.
+- **Toàn quyền giám sát & điều khiển:** Xem, điều khiển, đổi ngưỡng, gán/gỡ camera và xác nhận cảnh báo cho **mọi thiết bị** trong hệ thống.
+- **Bảo mật & Giám sát:** Xem **Nhật ký Audit Logs** để theo dõi các thao tác quản trị nhạy cảm (onboard/thu hồi thiết bị, gửi lệnh điều khiển, xác nhận sự cố, quản lý user...).
 
 ---
 
 ### Vai trò 2: Người vận hành (Operator / Chủ sở hữu)
-*Là người trực tiếp sử dụng thiết bị (ví dụ: chủ nhà, ban quản lý, bảo vệ tòa nhà).*
-- **Giám sát:** Xem biểu đồ dữ liệu thời gian thực và trạng thái Online/Offline của các thiết bị mình được cấp quyền quản lý.
-- **Điều khiển:** Được quyền nhấn nút "Tắt còi" khi có báo động giả hoặc nhấn nút "Test" còi từ xa.
-- **Xử lý sự cố:** Được quyền thay đổi ngưỡng cảnh báo riêng cho thiết bị của mình và bấm "Xác nhận đã xử lý" (*Acknowledge*) khi sự cố cháy đã được khắc phục.
-- **Hạn chế:** Không được xóa thiết bị, không được xem Audit Logs hệ thống và không có quyền quản lý tài khoản người dùng khác.
+*Là người trực tiếp phụ trách một hoặc nhiều thiết bị được Admin phân công.*
+- **Giám sát chung:** Được xem toàn bộ danh sách thiết bị, biểu đồ Telemetry, Camera hiện trường và lịch sử cảnh báo trên Dashboard (tương tự `Viewer`).
+- **Điều khiển & Cấu hình (chỉ trên thiết bị được gán `assigned_user_id`):** Được quyền nhấn nút "Tắt còi", "Test còi", thay đổi ngưỡng cảnh báo (`smoke_threshold`, `temp_threshold`), gán/gỡ Camera và bấm "Xác nhận đã xử lý" (*Acknowledge Alert*).
+- **Hạn chế:** Với các thiết bị **không được gán cho mình**, giao diện sẽ tự động khóa chỉ đọc (giống `Viewer`) và Backend sẽ chặn bằng mã lỗi `403 Forbidden`. Không được truy cập trang quản trị `/admin`, không được thêm/xóa thiết bị, không được xem Audit Logs và không được quản lý tài khoản người dùng.
 
 ---
 
 ### Vai trò 3: Người xem (Viewer)
-*Là người dùng có quyền hạn cơ bản nhất (ví dụ: cư dân sinh sống trong tòa nhà).*
-- **Giám sát:** Chỉ được phép xem giao diện Dashboard (biểu đồ nhiệt độ, nồng độ khói, tình trạng hoạt động của thiết bị).
-- **Xem lịch sử:** Xem danh sách lịch sử các vụ cảnh báo cháy đã từng xảy ra.
-- **Hạn chế:** API Backend sẽ từ chối bằng mã lỗi `403 Forbidden` nếu người dùng này cố tình thao tác gửi lệnh tắt còi báo động, thay đổi ngưỡng cảnh báo hoặc can thiệp vào cấu hình hệ thống.
+*Là người dùng có quyền hạn cơ bản nhất (chỉ đọc - Read-only).*
+- **Giám sát:** Được phép xem Dashboard (biểu đồ nhiệt độ, nồng độ khói, tình trạng hoạt động thiết bị, Camera) và xem lịch sử cảnh báo / lịch sử lệnh.
+- **Hạn chế:** Giao diện khóa toàn bộ nút thao tác và API Backend từ chối bằng mã lỗi `403 Forbidden` nếu cố tình gửi lệnh tắt/test còi, đổi ngưỡng, gán camera hay xác nhận sự cố.
+
+### Tài khoản mẫu mặc định (Seed Data)
+Có thể khởi tạo bằng `python3 backend/scripts/seed_users.py` và đăng nhập bằng **Username** hoặc **Email**:
+
+| Vai trò | Username | Email | Mật khẩu mặc định |
+| :--- | :--- | :--- | :--- |
+| `ADMIN` | `admin` | `admin@firealert.iot` | `Admin@123456` |
+| `OPERATOR` | `operator` | `operator@firealert.iot` | `Operator@123456` |
+| `VIEWER` | `viewer` | `viewer@firealert.iot` | `Viewer@123456` |
 
 ---
 
@@ -185,20 +193,21 @@ cp .env.example .env
 # - SUPABASE_SERVICE_ROLE_KEY: Khóa Service Role bí mật
 # - TELEGRAM_BOT_TOKEN: Token từ @BotFather
 # - TELEGRAM_CHAT_ID: Chat ID nhận cảnh báo từ @userinfobot
+# - CAMERA_SNAPSHOT_URL / CAMERA_HTTP_USERNAME / CAMERA_HTTP_PASSWORD: (Tùy chọn) Camera IP gửi ảnh Telegram
 ```
 
 ---
 
 ### 4.3. Khởi chạy hệ thống bằng Docker Compose
 
-Toàn bộ dịch vụ (MQTT Broker Mosquitto và FastAPI Backend Worker) được đóng gói và khởi chạy tự động:
+Toàn bộ dịch vụ (**MQTT Broker Mosquitto**, **FastAPI Backend Worker**, và **React Web Frontend**) được đóng gói và khởi chạy tự động:
 
 ```bash
 # Di chuyển vào thư mục deployment
 cd deployment
 
-# Khởi chạy các container ở chế độ chạy nền
-docker compose up -d
+# Build và khởi chạy các container ở chế độ chạy nền
+docker compose up -d --build
 ```
 
 Kiểm tra trạng thái các dịch vụ đang chạy:
@@ -207,6 +216,7 @@ docker compose ps
 ```
 
 Sau khi khởi chạy thành công:
+- **Giao diện Web Dashboard (Frontend):** [http://localhost:3000](http://localhost:3000)
 - **Tài liệu API Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Kiểm tra trạng thái hệ thống (Health Check):** [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
 - **Cổng kết nối MQTT Broker:** `localhost:1883`
