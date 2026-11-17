@@ -23,7 +23,3 @@ class DeviceStatusUpdateRequest(BaseModel):
 
 class DeviceProvisionRequest(BaseModel):
     source_device_id: str = Field(..., description="ID hiện tại của ESP32 nhận lệnh provision")
-
-class ThresholdUpdateRequest(BaseModel):
-    smoke_threshold: float = Field(..., gt=50, le=2000, example=400.0, description="Ngưỡng khói báo động (PPM)")
-    temp_threshold: float = Field(..., gt=20, le=100, example=55.0, description="Ngưỡng nhiệt độ báo động (°C)")

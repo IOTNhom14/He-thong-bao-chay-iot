@@ -1,9 +1,10 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 import time
 from uuid import UUID
 
 from app.core.database import supabase
-from app.core.security import require_roles, write_audit_log
+from app.core.security import ensure_device_access, require_roles, write_audit_log
 from app.schemas.control import ControlCommandRequest
 from app.mqtt.worker import mqtt_worker
 
@@ -42,21 +43,25 @@ def send_control_command(
     Gửi lệnh điều khiển cơ cấu chấp hành (MUTE_BUZZER, TEST_ALARM, UPDATE_THRESHOLD).
     Viewer bị chặn tự động bởi require_roles và trả về 403 Forbidden.
     """
-    # 1. Kiểm tra trạng thái thiết bị trong CSDL
-    dev_status = None
-    try:
-        dev_res = supabase.table("devices").select("status").eq("device_id", device_id).execute()
-        if dev_res.data:
-            dev_status = dev_res.data[0].get("status")
-    except Exception as exc:
-        print(f"[CONTROL DB ERROR] Không thể kiểm tra status device: {exc}")
-
-    if not dev_status:
-        raise HTTPException(status_code=404, detail="Thiết bị không tồn tại")
-    if dev_status == "DECOMMISSIONED":
+    # 1. Kiểm tra thiết bị tồn tại, quyền sở hữu OPERATOR và trạng thái thiết bị
+    device = ensure_device_access(device_id, current_user)
+    if device.get("status") == "DECOMMISSIONED":
         raise HTTPException(status_code=400, detail="Thiết bị đã bị thu hồi, không thể nhận lệnh điều khiển")
 
-    # 2. Ghi nhận lệnh vào bảng command_logs với trạng thái ban đầu là SENT
+    # 2. Nếu là lệnh đổi ngưỡng, cập nhật trực tiếp vào bảng devices
+    if payload.action == "UPDATE_THRESHOLD":
+        if not payload.params or "smoke_threshold" not in payload.params or "temp_threshold" not in payload.params:
+            raise HTTPException(status_code=422, detail="Thiếu smoke_threshold hoặc temp_threshold")
+        try:
+            supabase.table("devices").update({
+                "smoke_threshold": payload.params["smoke_threshold"],
+                "temp_threshold": payload.params["temp_threshold"],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("device_id", device_id).execute()
+        except Exception as exc:
+            print(f"[CONTROL DB ERROR] Không thể cập nhật threshold device: {exc}")
+
+    # 3. Ghi nhận lệnh vào bảng command_logs với trạng thái ban đầu là SENT
     command_record = {
         "device_id": device_id,
         "action": payload.action,

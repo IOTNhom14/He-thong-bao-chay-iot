@@ -10,6 +10,7 @@ export interface DeviceItem {
   is_muted: boolean;
   camera_url?: string | null;
   camera_stream_url?: string | null;
+  assigned_user_id?: string | null;
   last_seen: string | null;
   created_at: string;
   updated_at: string;
@@ -78,6 +79,7 @@ export const DeviceApi = {
         temp_threshold: dev.temp_threshold ?? 55,
         gas_threshold: dev.gas_threshold ?? dev.smoke_threshold ?? 400,
         is_muted: dev.is_muted ?? false,
+        assigned_user_id: dev.assigned_user_id || null,
         last_seen: dev.last_seen || null,
         created_at: dev.created_at || new Date().toISOString(),
         updated_at: dev.updated_at || new Date().toISOString(),
@@ -103,6 +105,7 @@ export const DeviceApi = {
           temp_threshold: raw.temp_threshold ?? 55,
           gas_threshold: raw.gas_threshold ?? raw.smoke_threshold ?? 400,
           is_muted: raw.is_muted ?? false,
+          assigned_user_id: raw.assigned_user_id || null,
         };
       }
     } catch (err) {

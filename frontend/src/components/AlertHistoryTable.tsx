@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AlertApi, type AlertItem } from '../api/alert.api';
 import { useAuth } from '../context/AuthContext';
 import { useCommandTracker } from '../context/CommandTrackerContext';
+import { useDeviceStore } from '../store/deviceStore';
 import { formatVietnamDateTime, formatVietnamTime } from '../utils/datetime';
 import {
   AlertTriangle,
@@ -15,8 +16,9 @@ import {
 } from 'lucide-react';
 
 export const AlertHistoryTable: React.FC = () => {
-  const { user, isViewer } = useAuth();
+  const { user, isViewer, isOperator } = useAuth();
   const { acknowledgeAlert } = useCommandTracker();
+  const devicesMap = useDeviceStore((state) => state.devices);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -216,6 +218,10 @@ export const AlertHistoryTable: React.FC = () => {
                 {filteredAlerts.map((alert) => {
                   const isCritical = alert.severity === 'CRITICAL';
                   const isWarning = alert.severity === 'WARNING';
+                  const isReadOnly =
+                    isViewer ||
+                    (isOperator &&
+                      String(devicesMap[alert.device_id]?.assigned_user_id || '') !== String(user?.id || ''));
 
                   return (
                     <tr
@@ -302,11 +308,11 @@ export const AlertHistoryTable: React.FC = () => {
                       <td className="py-2 px-3 whitespace-nowrap text-right font-sans">
                         {alert.resolved ? (
                           <span className="text-zinc-500 text-xs italic">Đã giải quyết</span>
-                        ) : isViewer ? (
+                        ) : isReadOnly ? (
                           <button
                             disabled
                             className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-600 text-xs cursor-not-allowed opacity-50 flex items-center gap-1 ml-auto"
-                            title="Tài khoản Viewer: Không có quyền giải quyết cảnh báo"
+                            title={isViewer ? 'Tài khoản Viewer: Không có quyền giải quyết cảnh báo' : 'Operator: Thiết bị không thuộc quyền quản lý của bạn'}
                           >
                             <ShieldAlert size={13} />
                             <span>Khóa (403)</span>

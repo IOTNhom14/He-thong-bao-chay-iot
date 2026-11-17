@@ -96,3 +96,25 @@ def write_audit_log(user_id: str, action: str, request: Request) -> None:
         }).execute()
     except Exception as e:
         print(f"[AUDIT LOG ERROR]: {e}")
+
+def ensure_device_access(device_id: str, current_user: dict) -> dict:
+    """
+    Kiểm tra thiết bị tồn tại và nếu là OPERATOR thì bắt buộc thiết bị phải có assigned_user_id trùng với ID người dùng.
+    """
+    try:
+        res = supabase.table("devices").select("*").eq("device_id", device_id).execute()
+        device = res.data[0] if res.data else None
+    except Exception as exc:
+        print(f"[DEVICE ACCESS ERROR]: {exc}")
+        device = None
+
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy thiết bị")
+
+    if current_user.get("role") == "OPERATOR":
+        if str(device.get("assigned_user_id") or "") != str(current_user.get("id") or ""):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Truy cập bị từ chối! Bạn không được phân quyền quản lý thiết bị {device_id}."
+            )
+    return device

@@ -17,12 +17,14 @@ interface AlarmBannerProps {
 }
 
 export const AlarmBanner: React.FC<AlarmBannerProps> = ({ alarmEvent, onMute }) => {
-  const { isViewer } = useAuth();
+  const { user, isViewer, isOperator } = useAuth();
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [showCameraModal, setShowCameraModal] = useState(false);
 
   // Tìm thông tin thiết bị đang báo động để lấy đúng Camera riêng của Node đó
   const alarmedDevice = useDeviceStore((state) => (alarmEvent ? state.devices[alarmEvent.device_id] : null));
+  const isReadOnly =
+    isViewer || (isOperator && String(alarmedDevice?.assigned_user_id || '') !== String(user?.id || ''));
   const activeStream =
     alarmedDevice?.camera_stream_url ||
     (alarmedDevice?.camera_url?.includes('/shot.jpg')
@@ -108,10 +110,10 @@ export const AlarmBanner: React.FC<AlarmBannerProps> = ({ alarmEvent, onMute }) 
           </button>
 
           {/* Điều khiển còi phần cứng ESP32 */}
-          {isViewer ? (
+          {isReadOnly ? (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-black/40 text-amber-200 text-xs border border-amber-500/30">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-              <span>Chế độ xem: Không có quyền ngắt còi trạm</span>
+              <span>{isViewer ? 'Chế độ xem: Không có quyền ngắt còi trạm' : 'Thiết bị không thuộc quyền quản lý của bạn'}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1 bg-black/40 p-1 rounded border border-white/20">

@@ -24,7 +24,8 @@ interface DeviceCardProps {
 }
 
 export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
-  const { isViewer } = useAuth();
+  const { user, isViewer, isOperator } = useAuth();
+  const isReadOnly = isViewer || (isOperator && String(device.assigned_user_id || '') !== String(user?.id || ''));
   const { executeCommand, isDeviceWaitingAck } = useCommandTracker();
 
   const isOnline = device.status === 'ONLINE';
@@ -255,12 +256,12 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
           </button>
 
           {/* Nút Test còi (5s) */}
-          {isViewer ? (
+          {isReadOnly ? (
             <button
               type="button"
               disabled
               className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-600 text-xs cursor-not-allowed opacity-50"
-              title="Viewer: Chỉ đọc (Không có quyền phát lệnh)"
+              title={isViewer ? 'Viewer: Chỉ đọc (Không có quyền phát lệnh)' : 'Operator: Chỉ được thao tác trên thiết bị được gán cho bạn'}
             >
               <ShieldAlert className="w-3.5 h-3.5" />
               <span>Khóa (403)</span>
@@ -281,12 +282,12 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSelect }) => {
 
         {/* Nút tắt còi duy nhất */}
         <div>
-          {isViewer ? (
+          {isReadOnly ? (
             <button
               type="button"
               disabled
               className="w-full flex items-center justify-center gap-1 py-1.5 px-2 rounded bg-zinc-900 border border-zinc-800 text-zinc-600 text-xs cursor-not-allowed opacity-50"
-              title="Viewer: Không có quyền tắt còi"
+              title={isViewer ? 'Viewer: Không có quyền tắt còi' : 'Operator: Chỉ được tắt còi trên thiết bị được gán cho bạn'}
             >
               <VolumeX className="w-3.5 h-3.5" />
               <span>Tắt còi (Chỉ đọc)</span>

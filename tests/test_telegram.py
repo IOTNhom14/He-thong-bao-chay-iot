@@ -4,6 +4,8 @@ import json
 import urllib.request
 import urllib.error
 
+from datetime import datetime
+
 def load_env(env_path=".env"):
     """Tự động đọc biến môi trường từ file .env mà không cần cài đặt python-dotenv"""
     env_vars = {}
@@ -52,11 +54,17 @@ def test_telegram_connection():
         print(f"[LỖI] Không thể kết nối tới Telegram API: {e}")
         return
 
-    # 2. Gửi tin nhắn thử nghiệm
+    # 2. Gửi tin nhắn cảnh báo thử nghiệm chuẩn format hệ thống
+    now_str = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
     msg = (
-        "<b>[TEST KẾT NỐI] HỆ THỐNG BÁO CHÁY IOT</b>\n"
-        "Đây là tin nhắn thử nghiệm kiểm tra tính năng thông báo tức thời.\n"
-        "Cấu hình Telegram Bot đã hoạt động chính xác 100%!"
+        "🔥 <b>[BÁO ĐỘNG ĐỎ] PHÁT HIỆN CẢNH BÁO CHÁY THỬ NGHIỆM!</b> 🔥\n\n"
+        "📍 <b>Vị trí:</b> Phòng Khách - Tầng 1 (<code>ESP32_FIRE_001</code>)\n"
+        "🔥 <b>Phát hiện ngọn lửa:</b> <b>CÓ (NGUY HIỂM)</b>\n"
+        "💨 <b>Nồng độ khói/Gas:</b> <b>785.4 PPM</b> (Ngưỡng: 400.0 PPM)\n"
+        "🌡 <b>Nhiệt độ môi trường:</b> <b>68.5°C</b> (Ngưỡng: 55.0°C)\n"
+        "🚨 <b>Còi báo động tại chỗ:</b> <b>ĐANG HÚ CÒI</b>\n"
+        f"⏱ <b>Thời gian:</b> <code>{now_str}</code>\n\n"
+        "<i>(Tin nhắn kích hoạt kiểm tra tính năng gửi cảnh báo sang Telegram)</i>"
     )
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = json.dumps({

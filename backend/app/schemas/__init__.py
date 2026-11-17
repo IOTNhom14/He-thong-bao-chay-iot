@@ -1,5 +1,5 @@
 from app.schemas.mqtt import TelemetryPayload, TelemetryUnits, StatusPayload, AckPayload
-from app.schemas.device import DeviceCreateRequest, DeviceStatusUpdateRequest, ThresholdUpdateRequest
+from app.schemas.device import DeviceCreateRequest, DeviceStatusUpdateRequest
 from app.schemas.control import ControlCommandRequest
 from app.schemas.user import (
     UserRole,
@@ -17,7 +17,6 @@ __all__ = [
     "AckPayload",
     "DeviceCreateRequest",
     "DeviceStatusUpdateRequest",
-    "ThresholdUpdateRequest",
     "ControlCommandRequest",
     "UserRole",
     "UserCreateRequest",

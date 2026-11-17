@@ -206,7 +206,7 @@ export const CommandTrackerProvider: React.FC<{ children: React.ReactNode }> = (
         return res;
       } catch (err: any) {
         const status = err.response?.status;
-        const errorMsg = err.response?.data?.error || err.message;
+        const errorMsg = err.response?.data?.detail || err.response?.data?.error || err.message;
 
         if (status === 403) {
           showError(
@@ -243,7 +243,7 @@ export const CommandTrackerProvider: React.FC<{ children: React.ReactNode }> = (
         );
         return true;
       } catch (err: any) {
-        const msg = err.response?.data?.error || err.message;
+        const msg = err.response?.data?.detail || err.response?.data?.error || err.message;
         showError(`Không thể xác nhận cảnh báo #${alertId}`, msg);
         return false;
       }

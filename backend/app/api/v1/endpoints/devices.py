@@ -7,13 +7,12 @@ from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
 from app.core.database import supabase
-from app.core.security import get_current_user, get_current_user_query, require_roles, write_audit_log
+from app.core.security import ensure_device_access, get_current_user, get_current_user_query, require_roles, write_audit_log
 from app.schemas.device import (
     DeviceCreateRequest,
     DeviceCameraUpdateRequest,
     DeviceProvisionRequest,
-    DeviceStatusUpdateRequest,
-    ThresholdUpdateRequest
+    DeviceStatusUpdateRequest
 )
 from app.mqtt.worker import mqtt_worker
 
@@ -97,7 +96,7 @@ def list_devices(current_user: dict = Depends(get_current_user)):
                             latest.get("flame_detected", False)
                             or (latest.get("temperature") or 0) >= float(device.get("temp_threshold") or 55)
                             or (latest.get("gas_ppm") or 0) >= float(
-                                device.get("smoke_threshold") or device.get("gas_threshold") or 400
+                                device.get("smoke_threshold") or 400
                             )
                         ),
                         "latest_telemetry_time": parsed_time,
@@ -217,6 +216,7 @@ def update_device_camera(
     request: Request,
     current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR"])),
 ):
+    ensure_device_access(device_id, current_user)
     camera_url = payload.camera_url.strip() if payload.camera_url else None
     if camera_url and not camera_url.startswith(("http://", "https://")):
         raise HTTPException(status_code=422, detail="URL camera phải bắt đầu bằng http:// hoặc https://")
@@ -410,36 +410,4 @@ def delete_decommissioned_device(
     return {
         "message": f"Đã xóa liên kết thiết bị {device_id}",
         "device_id": device_id,
-    }
-
-@router.put("/{device_id}/thresholds", summary="Cập nhật ngưỡng khói và nhiệt độ từ xa (ADMIN & OPERATOR)")
-def update_device_thresholds(
-    device_id: str,
-    payload: ThresholdUpdateRequest,
-    request: Request,
-    current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR"]))
-):
-    res = supabase.table("devices").update({
-        "smoke_threshold": payload.smoke_threshold,
-        "temp_threshold": payload.temp_threshold,
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }).eq("device_id", device_id).execute()
-
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Không tìm thấy thiết bị")
-
-    command_id = _queue_device_command(
-        device_id,
-        "UPDATE_THRESHOLD",
-        {
-            "smoke_threshold": payload.smoke_threshold,
-            "temp_threshold": payload.temp_threshold,
-        },
-        current_user,
-    )
-
-    write_audit_log(current_user["id"], f"UPDATE_THRESHOLDS:{device_id}", request)
-    return {
-        "command_id": command_id,
-        "device": res.data[0],
     }

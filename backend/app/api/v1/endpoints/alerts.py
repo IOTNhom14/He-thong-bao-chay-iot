@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.config import settings
 from app.core.database import supabase
-from app.core.security import get_current_user, require_roles, write_audit_log
+from app.core.security import ensure_device_access, get_current_user, require_roles, write_audit_log
 
 router = APIRouter(prefix="/alerts", tags=["Giám Sát & Xử Lý Cảnh Báo"])
 
@@ -32,6 +32,12 @@ def acknowledge_alert(
     request: Request,
     current_user: dict = Depends(require_roles(["ADMIN", "OPERATOR"]))
 ):
+    alert_res = supabase.table("alerts").select("id, device_id").eq("id", alert_id).execute()
+    if not alert_res.data:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bản ghi cảnh báo")
+
+    ensure_device_access(alert_res.data[0]["device_id"], current_user)
+
     now_iso = datetime.now(timezone.utc).isoformat()
     res = supabase.table("alerts").update({
         "status": "ACKNOWLEDGED",

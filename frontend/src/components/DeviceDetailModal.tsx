@@ -71,7 +71,7 @@ const generateDemoPoints = (deviceId: string, count = 20): TelemetryPoint[] => {
 };
 
 export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, onClose, onDeviceUpdated }) => {
-  const { isViewer } = useAuth();
+  const { user, isViewer, isOperator } = useAuth();
   const { executeCommand, isDeviceWaitingAck } = useCommandTracker();
   const [activeTab, setActiveTab] = useState<'REALTIME' | 'HISTORY' | 'CONTROL' | 'CAMERA'>('REALTIME');
   const [isStreamPaused, setIsStreamPaused] = useState(false);
@@ -83,6 +83,8 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
   // Lấy dữ liệu thiết bị thực tế từ store (kèm cấu hình camera riêng của từng node)
   const storedDevice = useDeviceStore((state) => state.devices[device.id]);
   const currentDevice = storedDevice || device;
+  const isReadOnly =
+    isViewer || (isOperator && String(currentDevice.assigned_user_id || '') !== String(user?.id || ''));
   const updateDeviceCamera = useDeviceStore((state) => state.updateDeviceCamera);
 
   const activeCameraStream =
@@ -745,12 +747,20 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
           {/* ================================================================= */}
           {activeTab === 'CONTROL' && (
             <div className="space-y-4">
-              {/* Cảnh báo phân quyền đối với VIEWER */}
-              {isViewer && (
+              {/* Cảnh báo phân quyền đối với VIEWER hoặc OPERATOR chưa được gán thiết bị */}
+              {isReadOnly && (
                 <div className="p-3 rounded border border-amber-800 bg-amber-950/40 text-amber-200 text-xs flex items-center gap-2">
                   <ShieldAlert size={16} className="text-amber-400 flex-shrink-0" />
                   <span>
-                    <strong>Tài khoản VIEWER (Chỉ đọc):</strong> Bạn không có quyền điều khiển hoặc đổi ngưỡng cảm biến. Mọi thao tác bị khóa trên giao diện và bảo vệ bởi chốt chặn HTTP 403 Forbidden.
+                    {isViewer ? (
+                      <>
+                        <strong>Tài khoản VIEWER (Chỉ đọc):</strong> Bạn không có quyền điều khiển hoặc đổi ngưỡng cảm biến. Mọi thao tác bị khóa trên giao diện và bảo vệ bởi chốt chặn HTTP 403 Forbidden.
+                      </>
+                    ) : (
+                      <>
+                        <strong>Chỉ xem thiết bị này:</strong> Thiết bị chưa được phân công cho bạn quản lý (OPERATOR chỉ thao tác trên thiết bị được Admin gán).
+                      </>
+                    )}
                   </span>
                 </div>
               )}
@@ -787,21 +797,21 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                   </p>
                   <div className="grid grid-cols-3 gap-2 font-mono text-xs">
                     <button
-                      disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
+                      disabled={isReadOnly || isSubmitting || isDeviceWaitingAck(device.id)}
                       onClick={() => handleSendCommand('MUTE_BUZZER', { duration_sec: 30 }, 'Tắt còi 30s')}
                       className="py-1.5 px-2 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 font-semibold border border-zinc-700 transition-colors text-center"
                     >
                       30 giây
                     </button>
                     <button
-                      disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
+                      disabled={isReadOnly || isSubmitting || isDeviceWaitingAck(device.id)}
                       onClick={() => handleSendCommand('MUTE_BUZZER', { duration_sec: 60 }, 'Tắt còi 60s')}
                       className="py-1.5 px-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-zinc-950 font-bold transition-colors text-center"
                     >
                       60 giây
                     </button>
                     <button
-                      disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
+                      disabled={isReadOnly || isSubmitting || isDeviceWaitingAck(device.id)}
                       onClick={() => handleSendCommand('MUTE_BUZZER', { duration_sec: 120 }, 'Tắt còi 120s')}
                       className="py-1.5 px-2 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 font-semibold border border-zinc-700 transition-colors text-center"
                     >
@@ -822,7 +832,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                     </p>
                   </div>
                   <button
-                    disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
+                    disabled={isReadOnly || isSubmitting || isDeviceWaitingAck(device.id)}
                     onClick={() => handleSendCommand('TEST_ALARM', { duration_sec: 5 }, 'Test còi báo động 5s')}
                     className="w-full py-1.5 px-3 rounded bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white font-semibold text-xs border border-red-600 transition-colors flex items-center justify-center gap-1.5 font-mono"
                   >
@@ -847,7 +857,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                       step="0.5"
                       value={tempThresholdInput}
                       onChange={(e) => setTempThresholdInput(e.target.value)}
-                      disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
+                      disabled={isReadOnly || isSubmitting || isDeviceWaitingAck(device.id)}
                       className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 font-mono focus:border-zinc-600 focus:outline-none disabled:opacity-50"
                     />
                   </div>
@@ -859,20 +869,20 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                       step="10"
                       value={gasThresholdInput}
                       onChange={(e) => setGasThresholdInput(e.target.value)}
-                      disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
+                      disabled={isReadOnly || isSubmitting || isDeviceWaitingAck(device.id)}
                       className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 font-mono focus:border-zinc-600 focus:outline-none disabled:opacity-50"
                     />
                   </div>
                 </div>
 
                 <button
-                  disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
+                  disabled={isReadOnly || isSubmitting || isDeviceWaitingAck(device.id)}
                   onClick={() =>
                     handleSendCommand(
                       'UPDATE_THRESHOLD',
                       {
                         temp_threshold: parseFloat(tempThresholdInput),
-                        gas_threshold: parseFloat(gasThresholdInput),
+                        smoke_threshold: parseFloat(gasThresholdInput),
                       },
                       'Đổi ngưỡng cảm biến'
                     )
@@ -1005,7 +1015,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                       </a>
 
                       {/* Nút gỡ gán camera khỏi node này */}
-                      {!isViewer && (
+                      {!isReadOnly && (
                         <button
                           type="button"
                           onClick={handleUnlinkCam}
@@ -1080,7 +1090,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                   </div>
 
                   {/* Cụm gán camera */}
-                  {!isViewer && (
+                  {!isReadOnly && (
                     <div className="max-w-md mx-auto space-y-3 pt-2">
                       {/* Nút 1-Click gán camera điện thoại đang có */}
                       <button

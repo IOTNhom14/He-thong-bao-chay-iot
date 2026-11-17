@@ -3,7 +3,6 @@ import { useAuth } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
 import { UserApi, type UserItem, type CreateUserInput } from '../api/user.api';
 import { DeviceApi, type DeviceItem } from '../api/device.api';
-import { SettingsApi, type ThresholdSettings } from '../api/settings.api';
 import { AuditApi, type AuditLogItem } from '../api/audit.api';
 import { useToast } from '../context/ToastContext';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -11,7 +10,6 @@ import { formatVietnamDate, formatVietnamDateTime } from '../utils/datetime';
 import {
   Users,
   Cpu,
-  Sliders,
   FileText,
   Plus,
   Trash2,
@@ -35,8 +33,8 @@ export const AdminPage: React.FC = () => {
   const { showSuccess, showError } = useToast();
   const { isConnected: wsConnected, connectionStatus, reconnectAttempts } = useWebSocket();
 
-  // Active Tab: USERS | DEVICES | THRESHOLDS | AUDIT
-  const [activeTab, setActiveTab] = useState<'USERS' | 'DEVICES' | 'THRESHOLDS' | 'AUDIT'>('USERS');
+  // Active Tab: USERS | DEVICES | AUDIT
+  const [activeTab, setActiveTab] = useState<'USERS' | 'DEVICES' | 'AUDIT'>('USERS');
 
   // ==========================================
   // TAB 1: QUẢN LÝ NGƯỜI DÙNG & GÁN THIẾT BỊ
@@ -393,43 +391,7 @@ export const AdminPage: React.FC = () => {
   };
 
   // ==========================================
-  // TAB 3: NGƯỠNG TOÀN CỤC
-  // ==========================================
-  const [thresholds, setThresholds] = useState<ThresholdSettings>({ temp_threshold: 55, gas_threshold: 400 });
-  const [isLoadingThresholds, setIsLoadingThresholds] = useState(false);
-  const [isSavingThresholds, setIsSavingThresholds] = useState(false);
-
-  const fetchThresholds = useCallback(async () => {
-    setIsLoadingThresholds(true);
-    try {
-      const data = await SettingsApi.getThresholds();
-      setThresholds(data);
-    } catch (err: any) {
-      showError('Lỗi lấy cấu hình ngưỡng', err.response?.data?.error || err.message);
-    } finally {
-      setIsLoadingThresholds(false);
-    }
-  }, [showError]);
-
-  const handleSaveThresholds = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSavingThresholds(true);
-    try {
-      const updated = await SettingsApi.updateThresholds(thresholds);
-      setThresholds(updated);
-      showSuccess(
-        'Đã lưu ngưỡng toàn cục',
-        `Nhiệt độ: ${updated.temp_threshold}°C • Khí Gas: ${updated.gas_threshold} ppm. Tất cả thiết bị mới sẽ áp dụng ngưỡng này.`
-      );
-    } catch (err: any) {
-      showError('Lưu ngưỡng thất bại', err.response?.data?.error || err.message);
-    } finally {
-      setIsSavingThresholds(false);
-    }
-  };
-
-  // ==========================================
-  // TAB 4: NHẬT KÝ KIỂM TOÁN (AUDIT LOGS)
+  // TAB 3: NHẬT KÝ KIỂM TOÁN (AUDIT LOGS)
   // ==========================================
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [totalLogs, setTotalLogs] = useState(0);
@@ -466,12 +428,10 @@ export const AdminPage: React.FC = () => {
       fetchDevices(); // để lấy danh sách thiết bị gán
     } else if (activeTab === 'DEVICES') {
       fetchDevices();
-    } else if (activeTab === 'THRESHOLDS') {
-      fetchThresholds();
     } else if (activeTab === 'AUDIT') {
       fetchAuditLogs();
     }
-  }, [activeTab, fetchUsers, fetchDevices, fetchThresholds, fetchAuditLogs]);
+  }, [activeTab, fetchUsers, fetchDevices, fetchAuditLogs]);
 
   // Lọc users hiển thị
   const filteredUsers = users.filter(
@@ -513,7 +473,7 @@ export const AdminPage: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Quản lý tài khoản & phân quyền thiết bị • Quản lý thiết bị • Ngưỡng toàn cục • Nhật ký Audit Logs an ninh
+                Quản lý tài khoản & phân quyền thiết bị • Quản lý thiết bị • Nhật ký Audit Logs an ninh
               </p>
             </div>
           </div>
@@ -527,7 +487,7 @@ export const AdminPage: React.FC = () => {
           </Link>
         </div>
 
-        {/* 4 Tabs Quản trị */}
+        {/* 3 Tabs Quản trị */}
         <div className="flex items-center gap-1.5 border-b border-zinc-800 pb-2 overflow-x-auto text-xs font-mono font-semibold">
           <button
             onClick={() => setActiveTab('USERS')}
@@ -551,18 +511,6 @@ export const AdminPage: React.FC = () => {
           >
             <Cpu size={14} />
             <span>Quản lý Thiết bị ({devices.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('THRESHOLDS')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-colors border ${
-              activeTab === 'THRESHOLDS'
-                ? 'bg-zinc-800 text-zinc-100 border-zinc-700'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border-transparent'
-            }`}
-          >
-            <Sliders size={14} />
-            <span>Ngưỡng toàn cục</span>
           </button>
 
           <button
@@ -918,110 +866,7 @@ export const AdminPage: React.FC = () => {
         )}
 
         {/* ================================================================= */}
-        {/* NỘI DUNG TAB 3: CẤU HÌNH NGƯỠNG TOÀN CỤC                           */}
-        {/* ================================================================= */}
-        {activeTab === 'THRESHOLDS' && (
-          <div className="max-w-2xl mx-auto space-y-4">
-            <div className="p-5 rounded-md bg-[#111318] border border-zinc-800 space-y-4">
-              <div className="flex items-center gap-2.5 pb-3 border-b border-zinc-800/80">
-                <div className="w-8 h-8 rounded bg-zinc-800 text-zinc-300 flex items-center justify-center border border-zinc-700">
-                  <Sliders size={16} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-zinc-100 uppercase tracking-wide">Cấu hình Ngưỡng Cảnh báo Toàn cục</h3>
-                  <p className="text-xs text-zinc-400 mt-0.5">
-                    Ngưỡng mặc định sẽ tự động áp dụng cho các thiết bị mới khởi tạo trong toàn trạm.
-                  </p>
-                </div>
-              </div>
-
-              {isLoadingThresholds ? (
-                <div className="py-10 text-center text-xs text-zinc-500 font-mono">Đang tải cấu hình ngưỡng...</div>
-              ) : (
-                <form onSubmit={handleSaveThresholds} className="space-y-4 pt-1 font-mono">
-                  {/* Ngưỡng nhiệt */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-zinc-300 block font-sans">
-                      Ngưỡng Nhiệt độ Toàn cục (°C):
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min="30"
-                        max="100"
-                        step="1"
-                        value={thresholds.temp_threshold}
-                        onChange={(e) =>
-                          setThresholds((prev) => ({ ...prev, temp_threshold: parseFloat(e.target.value) }))
-                        }
-                        className="flex-1 accent-red-600 cursor-pointer"
-                      />
-                      <input
-                        type="number"
-                        min="30"
-                        max="100"
-                        step="0.5"
-                        value={thresholds.temp_threshold}
-                        onChange={(e) =>
-                          setThresholds((prev) => ({ ...prev, temp_threshold: parseFloat(e.target.value) || 55 }))
-                        }
-                        className="w-24 bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1 text-white font-mono text-center focus:border-zinc-600 focus:outline-none"
-                      />
-                    </div>
-                    <p className="text-[11px] text-zinc-500 font-sans">
-                      Mức khuyến nghị: <strong className="text-zinc-300">50°C - 60°C</strong>. Vượt mức này hệ thống tự động kích hoạt cảnh báo.
-                    </p>
-                  </div>
-
-                  {/* Ngưỡng khí Gas */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-zinc-300 block font-sans">
-                      Ngưỡng Nồng độ Khí Gas Toàn cục (PPM):
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min="100"
-                        max="2000"
-                        step="50"
-                        value={thresholds.gas_threshold}
-                        onChange={(e) =>
-                          setThresholds((prev) => ({ ...prev, gas_threshold: parseFloat(e.target.value) }))
-                        }
-                        className="flex-1 accent-sky-600 cursor-pointer"
-                      />
-                      <input
-                        type="number"
-                        min="100"
-                        max="5000"
-                        step="10"
-                        value={thresholds.gas_threshold}
-                        onChange={(e) =>
-                          setThresholds((prev) => ({ ...prev, gas_threshold: parseFloat(e.target.value) || 400 }))
-                        }
-                        className="w-24 bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1 text-white font-mono text-center focus:border-zinc-600 focus:outline-none"
-                      />
-                    </div>
-                    <p className="text-[11px] text-zinc-500 font-sans">
-                      Mức khuyến nghị: <strong className="text-zinc-300">300 - 500 PPM</strong> (khí LPG / khói khí dễ cháy).
-                    </p>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isSavingThresholds}
-                    className="w-full py-2 px-3 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-semibold text-xs border border-zinc-700 transition-colors disabled:opacity-50 font-sans"
-                  >
-                    {isSavingThresholds ? 'Đang lưu cài đặt...' : 'Lưu Thay đổi Ngưỡng Toàn Cục'}
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ================================================================= */}
-        {/* NỘI DUNG TAB 4: NHẬT KÝ KIỂM TOÁN (AUDIT LOGS)                     */}
+        {/* NỘI DUNG TAB 3: NHẬT KÝ KIỂM TOÁN (AUDIT LOGS)                     */}
         {/* ================================================================= */}
         {activeTab === 'AUDIT' && (
           <div className="space-y-4">
