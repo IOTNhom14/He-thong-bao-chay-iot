@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+import time
 from uuid import UUID
 
 from app.core.database import supabase
@@ -42,10 +43,17 @@ def send_control_command(
     Viewer bị chặn tự động bởi require_roles và trả về 403 Forbidden.
     """
     # 1. Kiểm tra trạng thái thiết bị trong CSDL
-    dev_res = supabase.table("devices").select("status").eq("device_id", device_id).execute()
-    if not dev_res.data:
+    dev_status = None
+    try:
+        dev_res = supabase.table("devices").select("status").eq("device_id", device_id).execute()
+        if dev_res.data:
+            dev_status = dev_res.data[0].get("status")
+    except Exception as exc:
+        print(f"[CONTROL DB ERROR] Không thể kiểm tra status device: {exc}")
+
+    if not dev_status:
         raise HTTPException(status_code=404, detail="Thiết bị không tồn tại")
-    if dev_res.data[0].get("status") == "DECOMMISSIONED":
+    if dev_status == "DECOMMISSIONED":
         raise HTTPException(status_code=400, detail="Thiết bị đã bị thu hồi, không thể nhận lệnh điều khiển")
 
     # 2. Ghi nhận lệnh vào bảng command_logs với trạng thái ban đầu là SENT
@@ -55,17 +63,22 @@ def send_control_command(
         "parameters": payload.params,
         "status": "SENT",
     }
+    user_id = current_user.get("id")
+    if user_id:
+        try:
+            UUID(str(user_id))
+            command_record["initiated_by"] = str(user_id)
+        except ValueError:
+            pass
+
+    command_id_str = f"cmd_{int(time.time() * 1000) % 100000}"
     try:
-        UUID(str(current_user["id"]))
-        command_record["initiated_by"] = current_user["id"]
-    except ValueError:
-        # Local demo users do not exist in Supabase Auth/public.users.
-        pass
-
-    log_res = supabase.table("command_logs").insert(command_record).execute()
-
-    cmd_record = log_res.data[0]
-    command_id_str = f"cmd_{cmd_record['id']}"
+        log_res = supabase.table("command_logs").insert(command_record).execute()
+        if log_res.data:
+            cmd_record = log_res.data[0]
+            command_id_str = f"cmd_{cmd_record['id']}"
+    except Exception as exc:
+        print(f"[CONTROL DB ERROR] Ghi nhận command log thất bại: {exc}")
 
     # 3. Đóng gói payload chuẩn hợp đồng và phát qua MQTT
     mqtt_payload = {

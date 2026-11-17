@@ -9,7 +9,7 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-  const { isAuthenticated, isLoading, user, logout } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   // 1. Hiển thị màn hình chờ xác thực khi đang tải session
   if (isLoading) {
@@ -29,11 +29,9 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowe
   }
 
   // 3. Phân quyền theo vai trò (Role-Based Access Control)
-  // Nếu không đủ quyền hạn quản trị (ví dụ Operator/Viewer cố vào /admin):
-  // Lập tức ngắt session và đá văng ra màn hình đăng nhập yêu cầu xác thực tài khoản Admin
+  // Nếu vai trò không đủ quyền: chuyển hướng sang trang /403 mà KHÔNG ngắt phiên làm việc
   if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
-    logout();
-    return <Navigate to="/login?reason=admin_required&redirect=/admin" replace />;
+    return <Navigate to="/403" replace />;
   }
 
   return <>{children}</>;

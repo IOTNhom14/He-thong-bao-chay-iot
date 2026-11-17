@@ -102,12 +102,18 @@ class MQTTWorker:
             return
 
         # 1. Kiểm tra thiết bị trong CSDL (Xác thực và Quản lý vòng đời)
-        dev_res = supabase.table("devices").select("*").eq("device_id", data.device_id).execute()
-        if not dev_res.data:
+        device = None
+        try:
+            dev_res = supabase.table("devices").select("*").eq("device_id", data.device_id).execute()
+            if dev_res.data:
+                device = dev_res.data[0]
+        except Exception as db_exc:
+            print(f"[MQTT DB] Không thể truy vấn Supabase devices: {db_exc}")
+
+        if not device:
             print(f"[SECURITY] Từ chối telemetry từ thiết bị chưa đăng ký: {data.device_id}")
             return
 
-        device = dev_res.data[0]
         if device.get("status") == "DECOMMISSIONED":
             print(f"[SECURITY BLOCK] Thiết bị {data.device_id} đã bị thu hồi vĩnh viễn! Từ chối nhận dữ liệu.")
             return
@@ -117,17 +123,25 @@ class MQTTWorker:
         update_fields = {"last_seen": now_iso}
         if device.get("status") != "ACTIVE":
             update_fields["status"] = "ACTIVE"
-        supabase.table("devices").update(update_fields).eq("device_id", data.device_id).execute()
+        try:
+            supabase.table("devices").update(update_fields).eq("device_id", data.device_id).execute()
+        except Exception:
+            pass
 
         # 3. Lưu trữ bản ghi telemetry vào bảng time-series
-        supabase.table("telemetry").insert({
+        telemetry_dict = {
             "device_id": data.device_id,
             "gas_ppm": data.gas_ppm,
             "temperature": data.temperature,
             "humidity": data.humidity,
             "flame_detected": data.flame_detected,
-            "local_alarm": data.local_alarm
-        }).execute()
+            "local_alarm": data.local_alarm,
+            "timestamp": data.timestamp,
+        }
+        try:
+            supabase.table("telemetry").insert(telemetry_dict).execute()
+        except Exception:
+            pass
 
         # 4. Kích hoạt Rule Engine thẩm định cảnh báo
         rule_engine.evaluate(data, device)
@@ -138,8 +152,15 @@ class MQTTWorker:
         except ValidationError:
             return
 
-        dev_res = supabase.table("devices").select("status, location").eq("device_id", data.device_id).execute()
-        if not dev_res.data or dev_res.data[0].get("status") == "DECOMMISSIONED":
+        device = None
+        try:
+            dev_res = supabase.table("devices").select("status, location").eq("device_id", data.device_id).execute()
+            if dev_res.data:
+                device = dev_res.data[0]
+        except Exception:
+            pass
+
+        if not device or device.get("status") == "DECOMMISSIONED":
             return
 
         if data.lifecycle_state == "DECOMMISSIONED":
@@ -156,19 +177,26 @@ class MQTTWorker:
         if data.firmware_version:
             update_payload["firmware_version"] = data.firmware_version
 
-        supabase.table("devices").update(update_payload).eq("device_id", data.device_id).execute()
+        try:
+            supabase.table("devices").update(update_payload).eq("device_id", data.device_id).execute()
+        except Exception:
+            pass
+
         print(f"[DEVICE STATUS] Thiết bị {data.device_id} chuyển trạng thái: {new_status}")
 
         # Khi nhận tín hiệu LWT (thiết bị offline đột ngột)
         if new_status == "OFFLINE":
-            supabase.table("alerts").insert({
-                "device_id": data.device_id,
-                "alert_type": "DEVICE_OFFLINE",
-                "status": "TRIGGERED"
-            }).execute()
+            try:
+                supabase.table("alerts").insert({
+                    "device_id": data.device_id,
+                    "alert_type": "DEVICE_OFFLINE",
+                    "status": "TRIGGERED"
+                }).execute()
+            except Exception:
+                pass
             send_alert_notification(
                 f"<b>[CẢNH BÁO LWT] MẤT KẾT NỐI THIẾT BỊ</b>\n"
-                f"Thiết bị <b>{data.device_id}</b> tại <b>{dev_res.data[0].get('location')}</b> vừa mất kết nối đột ngột!"
+                f"Thiết bị <b>{data.device_id}</b> tại <b>{device.get('location', 'Hiện trường')}</b> vừa mất kết nối đột ngột!"
             )
 
     def _handle_ack(self, raw_data: dict) -> None:

@@ -32,11 +32,13 @@ def _queue_device_command(
         "parameters": params,
         "status": "SENT",
     }
-    try:
-        UUID(str(current_user["id"]))
-        command_record["initiated_by"] = current_user["id"]
-    except ValueError:
-        pass
+    user_id = current_user.get("id")
+    if user_id:
+        try:
+            UUID(str(user_id))
+            command_record["initiated_by"] = str(user_id)
+        except ValueError:
+            pass
 
     log_res = supabase.table("command_logs").insert(command_record).execute()
     if not log_res.data:
@@ -56,39 +58,54 @@ def _queue_device_command(
 @router.get("", summary="Lấy danh sách tất cả thiết bị trong hệ thống")
 def list_devices(current_user: dict = Depends(get_current_user)):
     """Mọi vai trò (Admin, Operator, Viewer) đều có thể xem danh sách"""
-    res = supabase.table("devices").select("*").order("created_at", desc=True).execute()
     devices = []
-    for device in res.data:
-        latest_res = (
-            supabase.table("telemetry")
-            .select("gas_ppm, temperature, humidity, flame_detected, local_alarm, timestamp")
-            .eq("device_id", device["device_id"])
-            .order("timestamp", desc=True)
-            .limit(1)
-            .execute()
-        )
-        latest = latest_res.data[0] if latest_res.data else None
-        if latest:
-            timestamp = latest.get("timestamp")
-            device.update({
-                "latest_temp": latest.get("temperature"),
-                "latest_gas": latest.get("gas_ppm"),
-                "latest_humidity": latest.get("humidity"),
-                "latest_flame": latest.get("flame_detected", False),
-                "latest_local_alarm": latest.get("local_alarm", False),
-                "latest_alarm": bool(
-                    latest.get("flame_detected", False)
-                    or (latest.get("temperature") or 0) >= float(device.get("temp_threshold") or 55)
-                    or (latest.get("gas_ppm") or 0) >= float(
-                        device.get("smoke_threshold") or device.get("gas_threshold") or 400
+    try:
+        res = supabase.table("devices").select("*").order("created_at", desc=True).execute()
+        if res.data:
+            for device in res.data:
+                try:
+                    latest_res = (
+                        supabase.table("telemetry")
+                        .select("gas_ppm, temperature, humidity, flame_detected, local_alarm, timestamp")
+                        .eq("device_id", device["device_id"])
+                        .order("timestamp", desc=True)
+                        .limit(1)
+                        .execute()
                     )
-                ),
-                "latest_telemetry_time": (
-                    int(datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp())
-                    if timestamp else None
-                ),
-            })
-        devices.append(device)
+                    latest = latest_res.data[0] if latest_res.data else None
+                except Exception:
+                    latest = None
+
+                if latest:
+                    timestamp = latest.get("timestamp")
+                    parsed_time = None
+                    if timestamp:
+                        if isinstance(timestamp, (int, float)):
+                            parsed_time = int(timestamp)
+                        elif isinstance(timestamp, str):
+                            try:
+                                parsed_time = int(datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp())
+                            except Exception:
+                                pass
+                    device.update({
+                        "latest_temp": latest.get("temperature"),
+                        "latest_gas": latest.get("gas_ppm"),
+                        "latest_humidity": latest.get("humidity"),
+                        "latest_flame": latest.get("flame_detected", False),
+                        "latest_local_alarm": latest.get("local_alarm", False),
+                        "latest_alarm": bool(
+                            latest.get("flame_detected", False)
+                            or (latest.get("temperature") or 0) >= float(device.get("temp_threshold") or 55)
+                            or (latest.get("gas_ppm") or 0) >= float(
+                                device.get("smoke_threshold") or device.get("gas_threshold") or 400
+                            )
+                        ),
+                        "latest_telemetry_time": parsed_time,
+                    })
+                devices.append(device)
+    except Exception as exc:
+        print(f"[DEVICES LIST ERROR] Supabase query failed: {exc}")
+
     return devices
 
 @router.post("", status_code=201, summary="Onboarding đăng ký thiết bị mới (Chỉ ADMIN)")
@@ -100,6 +117,14 @@ def register_device(
     auth_token = f"secret_tok_{secrets.token_hex(12)}"
     provision_attempted = False
     provision_sent = False
+    assigned_user = payload.assigned_user_id or current_user.get("id")
+    if assigned_user:
+        try:
+            UUID(str(assigned_user))
+            assigned_user = str(assigned_user)
+        except ValueError:
+            assigned_user = current_user.get("id")
+
     try:
         res = supabase.table("devices").insert({
             "device_id": payload.device_id,
@@ -110,7 +135,7 @@ def register_device(
             "smoke_threshold": payload.smoke_threshold,
             "temp_threshold": payload.temp_threshold,
             "camera_url": getattr(payload, "camera_url", None),
-            "assigned_user_id": payload.assigned_user_id
+            "assigned_user_id": assigned_user
         }).execute()
 
         provision_command_id = None

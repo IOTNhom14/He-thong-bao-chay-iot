@@ -232,26 +232,10 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
   const loadCommands = async () => {
     try {
       const logs = await DeviceApi.getDeviceCommands(device.id);
-      if (logs && logs.length > 0) {
-        setCommandLogs(logs);
-      } else {
-        setCommandLogs([
-          {
-            id: 'demo-cmd-1',
-            command_id: 'CMD_' + Date.now().toString(36).toUpperCase(),
-            device_id: device.id,
-            action: 'UPDATE_THRESHOLD',
-            params: { temp_threshold: device.temp_threshold ?? 55, gas_threshold: device.gas_threshold ?? 400 },
-            status: 'SUCCESS',
-            sent_by: 'admin',
-            created_at: new Date(Date.now() - 180000).toISOString(),
-            ack_at: new Date(Date.now() - 179000).toISOString(),
-            ack_message: 'ACK: Đồng bộ cấu hình flash ESP32 thành công',
-          },
-        ]);
-      }
+      setCommandLogs(logs || []);
     } catch (err) {
       console.warn('Lỗi tải nhật ký lệnh:', err);
+      setCommandLogs([]);
     }
   };
 

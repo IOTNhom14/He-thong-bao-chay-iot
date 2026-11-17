@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth, DEMO_CREDENTIALS } from '../context/AuthContext';
-import { Flame, Lock, Mail, ArrowRight, Shield, AlertCircle, ShieldAlert } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Flame, Lock, Mail, ArrowRight, AlertCircle, ShieldAlert } from 'lucide-react';
 import type { UserRole } from '../api/auth.api';
 
 export const LoginPage: React.FC = () => {
@@ -34,20 +34,8 @@ export const LoginPage: React.FC = () => {
       const parsed = savedUser ? JSON.parse(savedUser) : null;
       navigateAfterLogin(parsed?.role);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } };
-      setErrorMsg(error.response?.data?.error || 'Đăng nhập không thành công');
-    }
-  };
-
-  const handleQuickLogin = async (role: UserRole) => {
-    const cred = DEMO_CREDENTIALS[role];
-    setErrorMsg(null);
-    try {
-      await login(cred.email, cred.pass);
-      navigateAfterLogin(role);
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } };
-      setErrorMsg(error.response?.data?.error || 'Đăng nhập không thành công');
+      const error = err as { response?: { data?: { error?: string; detail?: string } } };
+      setErrorMsg(error.response?.data?.detail || error.response?.data?.error || 'Đăng nhập không thành công. Vui lòng kiểm tra lại thông tin.');
     }
   };
 
@@ -105,7 +93,7 @@ export const LoginPage: React.FC = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin hoặc admin@firealert.iot"
+                placeholder="Tên đăng nhập hoặc email..."
                 className="w-full bg-[#0c0e12] border border-zinc-800 rounded pl-8 pr-2.5 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:border-zinc-600 focus:outline-none transition-colors"
               />
             </div>
@@ -139,38 +127,6 @@ export const LoginPage: React.FC = () => {
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </form>
-
-        {/* Đăng nhập nhanh phục vụ kiểm thử / demo */}
-        <div className="mt-6 pt-5 border-t border-zinc-800">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 mb-2.5 uppercase tracking-wider">
-            <Shield className="w-3.5 h-3.5 text-zinc-500" />
-            <span>Đăng nhập nhanh theo vai trò ca trực:</span>
-          </div>
-
-          <div className="space-y-1.5">
-            {(['ADMIN', 'OPERATOR', 'VIEWER'] as UserRole[]).map((r) => {
-              const cred = DEMO_CREDENTIALS[r];
-              return (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => handleQuickLogin(r)}
-                  className="w-full text-left p-2 rounded bg-[#0c0e12] hover:bg-zinc-800 border border-zinc-800/80 transition-colors flex items-center justify-between group"
-                >
-                  <div>
-                    <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
-                      {cred.title}
-                    </div>
-                    <div className="text-[11px] text-zinc-400">{cred.desc}</div>
-                  </div>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
-                    {r}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
     </div>
   );

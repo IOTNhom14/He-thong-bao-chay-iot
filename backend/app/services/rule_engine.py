@@ -68,14 +68,18 @@ class FireRuleEngine:
             if now - last_sent > settings.ALERT_COOLDOWN_SEC:
                 _last_alert_timestamps[data.device_id] = now
 
-                # 1. Ghi nhận sự kiện cảnh báo vào CSDL
-                supabase.table("alerts").insert({
+                # 1. Ghi nhận sự kiện cảnh báo vào CSDL (Fail-safe: Không làm sập luồng gửi cảnh báo)
+                alert_record = {
                     "device_id": data.device_id,
                     "alert_type": alert_type,
                     "trigger_value": trigger_val,
                     "threshold_value": threshold_val,
                     "status": "TRIGGERED"
-                }).execute()
+                }
+                try:
+                    supabase.table("alerts").insert(alert_record).execute()
+                except Exception as db_exc:
+                    print(f"[RULE ENGINE DB ERROR] Lỗi ghi nhận CSDL: {db_exc}")
 
                 # 2. Bắn thông báo khẩn cấp tới người dùng kèm ảnh chụp từ Camera riêng của Node
                 node_cam_url = device.get("camera_url")

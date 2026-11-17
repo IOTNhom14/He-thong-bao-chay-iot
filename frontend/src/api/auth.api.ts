@@ -18,56 +18,21 @@ export interface LoginResponse {
 }
 
 export const AuthApi = {
-  // Đăng nhập hệ thống (hỗ trợ cả Backend thật và Fallback Demo nếu Backend chưa có endpoint /auth)
+  // Đăng nhập hệ thống qua credentials chính thức
   async login(usernameOrEmail: string, password: string): Promise<LoginResponse> {
-    try {
-      const res = await apiClient.post<any>('/auth/login', {
-        username: usernameOrEmail,
-        email: usernameOrEmail,
-        password,
-      });
-      return res.data?.data || res.data;
-    } catch (err: any) {
-      // Nếu Backend chưa có endpoint /auth/login (404) hoặc không phản hồi
-      if (err.response?.status === 404 || err.code === 'ERR_NETWORK') {
-        const lower = usernameOrEmail.toLowerCase();
-        let role: UserRole = 'VIEWER';
-        if (lower.includes('admin')) role = 'ADMIN';
-        else if (lower.includes('operator')) role = 'OPERATOR';
-
-        const mockUser: UserProfile = {
-          id: `usr_${role.toLowerCase()}_demo`,
-          username: usernameOrEmail.includes('@') ? usernameOrEmail.split('@')[0] : usernameOrEmail,
-          email: usernameOrEmail.includes('@') ? usernameOrEmail : `${usernameOrEmail}@firealert.iot`,
-          role,
-          fullName: role === 'ADMIN' ? 'Quản Trị Viên (Demo)' : role === 'OPERATOR' ? 'Kỹ Thuật Viên (Demo)' : 'Giám Sát Viên (Demo)',
-        };
-
-        return {
-          success: true,
-          message: 'Đăng nhập phiên làm việc thành công',
-          token: `demo_token_${role.toLowerCase()}_${Date.now()}`,
-          user: mockUser,
-        };
-      }
-      throw err;
-    }
+    const res = await apiClient.post<LoginResponse | { data: LoginResponse }>('/auth/login', {
+      username: usernameOrEmail,
+      email: usernameOrEmail,
+      password,
+    });
+    const payload = 'data' in res.data && res.data.data ? res.data.data : (res.data as LoginResponse);
+    return payload;
   },
 
-  // Lấy thông tin user hiện tại
+  // Lấy thông tin user hiện tại từ token xác thực
   async getMe(): Promise<{ success: boolean; user: UserProfile }> {
-    try {
-      const res = await apiClient.get<any>('/auth/me');
-      return res.data?.data || res.data;
-    } catch {
-      const savedUserStr = localStorage.getItem('fire_alert_user');
-      if (savedUserStr) {
-        return {
-          success: true,
-          user: JSON.parse(savedUserStr),
-        };
-      }
-      throw new Error('Chưa đăng nhập');
-    }
+    const res = await apiClient.get<{ success: boolean; user: UserProfile } | { data: { success: boolean; user: UserProfile } }>('/auth/me');
+    const payload = 'data' in res.data && res.data.data ? res.data.data : res.data;
+    return payload as { success: boolean; user: UserProfile };
   },
 };

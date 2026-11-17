@@ -3,7 +3,6 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_SERVICE_ROLE_KEY: str
-    ENABLE_DEMO_AUTH: bool = False
     
     MQTT_BROKER_HOST: str = "mosquitto"
     MQTT_BROKER_PORT: int = 1883
@@ -18,10 +17,14 @@ class Settings(BaseSettings):
     CAMERA_HTTP_PASSWORD: str = ""
     CAMERA_SNAPSHOT_PATH: str = "/shot.jpg"
     
+    JWT_SECRET: str = "fire-alert-iot-nhom14-secret-key-32bytes-min-security-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_HOURS: int = 24
+
     ALERT_COOLDOWN_SEC: int = 60
 
     class Config:
-        env_file = ".env"
+        env_file = (".env", "../.env")
         extra = "ignore"
 
 settings = Settings()

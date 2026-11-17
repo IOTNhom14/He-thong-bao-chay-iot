@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app.core.config import settings
 from app.core.database import supabase
 from app.core.security import get_current_user, require_roles, write_audit_log
 
@@ -10,14 +11,20 @@ router = APIRouter(prefix="/alerts", tags=["Giám Sát & Xử Lý Cảnh Báo"])
 @router.get("", summary="Xem danh sách lịch sử các vụ cảnh báo cháy")
 def list_alerts(limit: int = 50, current_user: dict = Depends(get_current_user)):
     """Mọi vai trò (Admin, Operator, Viewer) đều có thể xem lịch sử cảnh báo"""
-    res = (
-        supabase.table("alerts")
-        .select("*")
-        .order("triggered_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
-    return res.data
+    try:
+        res = (
+            supabase.table("alerts")
+            .select("*")
+            .order("triggered_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        if res.data is not None:
+            return res.data
+    except Exception as exc:
+        print(f"[ALERTS LIST ERROR] {exc}")
+
+    return []
 
 @router.put("/{alert_id}/acknowledge", summary="Xác nhận đã xử lý sự cố cháy (Chỉ ADMIN & OPERATOR)")
 def acknowledge_alert(

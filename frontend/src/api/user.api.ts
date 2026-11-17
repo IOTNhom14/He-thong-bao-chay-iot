@@ -25,74 +25,27 @@ export interface CreateUserInput {
   username: string;
   password: string;
   role: UserRole;
-  email?: string;
+  email: string;
 }
-
-export const DEFAULT_DEMO_USERS: UserItem[] = [
-  {
-    id: 'user_admin_01',
-    username: 'admin',
-    email: 'admin@hethongbaochay.iot',
-    role: 'ADMIN',
-    is_active: true,
-    failed_attempts: 0,
-    locked_until: null,
-    created_at: new Date(Date.now() - 3600000 * 24 * 30).toISOString(),
-    assigned_devices: ['ESP32_FIRE_001', 'ESP32_FIRE_002'],
-  },
-  {
-    id: 'user_op_01',
-    username: 'operator',
-    email: 'operator@hethongbaochay.iot',
-    role: 'OPERATOR',
-    is_active: true,
-    failed_attempts: 0,
-    locked_until: null,
-    created_at: new Date(Date.now() - 3600000 * 24 * 15).toISOString(),
-    assigned_devices: ['ESP32_FIRE_001', 'ESP32_FIRE_002'],
-  },
-  {
-    id: 'user_viewer_01',
-    username: 'viewer',
-    email: 'viewer@hethongbaochay.iot',
-    role: 'VIEWER',
-    is_active: true,
-    failed_attempts: 0,
-    locked_until: null,
-    created_at: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
-    assigned_devices: [],
-  },
-];
 
 export const UserApi = {
   // 1. Lấy danh sách toàn bộ người dùng (Admin)
   async getUsers(): Promise<UserItem[]> {
-    try {
-      const res = await apiClient.get<any>('/users');
-      const list = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-      if (list.length > 0) return list;
-    } catch {
-      // Backend FastAPI chưa có bảng users độc lập -> sử dụng danh sách mẫu theo RBAC
-    }
-    return DEFAULT_DEMO_USERS;
+    const res = await apiClient.get<any>('/users');
+    return Array.isArray(res.data) ? res.data : (res.data?.data || []);
   },
 
   // 2. Lấy chi tiết người dùng kèm danh sách thiết bị được phân công
   async getUserById(id: string): Promise<UserDetail> {
-    try {
-      const res = await apiClient.get<any>(`/users/${id}`);
-      if (res.data) return res.data?.data || res.data;
-    } catch {
-      // Fallback
-    }
-    const found = DEFAULT_DEMO_USERS.find((u) => u.id === id || u.username === id) || DEFAULT_DEMO_USERS[0];
+    const res = await apiClient.get<any>(`/users/${id}`);
+    const data = res.data?.data || res.data;
     return {
-      ...found,
-      isActive: found.is_active,
-      failedAttempts: found.failed_attempts,
-      lockedUntil: found.locked_until,
-      createdAt: found.created_at,
-      assignedDevices: found.assigned_devices || [],
+      ...data,
+      isActive: data.is_active ?? data.isActive ?? true,
+      failedAttempts: data.failed_attempts ?? data.failedAttempts ?? 0,
+      lockedUntil: data.locked_until ?? data.lockedUntil ?? null,
+      createdAt: data.created_at ?? data.createdAt ?? new Date().toISOString(),
+      assignedDevices: data.assigned_devices ?? data.assignedDevices ?? [],
     };
   },
 

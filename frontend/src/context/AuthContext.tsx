@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthApi, type UserProfile, type UserRole } from '../api/auth.api';
+import { AuthApi, type UserProfile } from '../api/auth.api';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -8,7 +8,6 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, pass: string) => Promise<void>;
   logout: () => void;
-  switchRoleDemo: (role: UserRole) => Promise<void>;
   isAdmin: boolean;
   isOperator: boolean;
   isViewer: boolean;
@@ -16,28 +15,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Thông tin tài khoản mẫu mặc định
-export const DEMO_CREDENTIALS: Record<UserRole, { email: string; pass: string; title: string; desc: string }> = {
-  ADMIN: {
-    email: 'admin@firealert.iot',
-    pass: 'Admin@123456',
-    title: 'Quản trị viên (Admin)',
-    desc: 'Toàn quyền cấu hình, xem mọi thiết bị & gửi lệnh',
-  },
-  OPERATOR: {
-    email: 'operator@firealert.iot',
-    pass: 'Operator@123456',
-    title: 'Kỹ thuật viên (Operator)',
-    desc: 'Điều khiển & cấu hình các thiết bị được phân công',
-  },
-  VIEWER: {
-    email: 'viewer@firealert.iot',
-    pass: 'Viewer@123456',
-    title: 'Giám sát viên (Viewer)',
-    desc: 'Chỉ đọc, bị chặn 403 Forbidden nếu gửi lệnh điều khiển',
-  },
-};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -87,12 +64,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  // Hàm chuyển đổi vai trò nhanh dành cho chấm thi và demo
-  const switchRoleDemo = async (role: UserRole) => {
-    const cred = DEMO_CREDENTIALS[role];
-    await login(cred.email, cred.pass);
-  };
-
   const isAdmin = user?.role === 'ADMIN';
   const isOperator = user?.role === 'OPERATOR';
   const isViewer = user?.role === 'VIEWER';
@@ -108,7 +79,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         login,
         logout,
-        switchRoleDemo,
         isAdmin,
         isOperator,
         isViewer,

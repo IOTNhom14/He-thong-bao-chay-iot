@@ -1,40 +1,49 @@
-import re
-from typing import List
-from uuid import UUID
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
+import bcrypt
+import jwt
 from fastapi import Depends, HTTPException, Query, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.core.database import supabase
 from app.core.config import settings
+from app.core.database import supabase
 
 security = HTTPBearer()
-DEMO_TOKEN_PATTERN = re.compile(r"^demo_token_(admin|operator|viewer)_[0-9]+$")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
+
+def get_password_hash(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(hours=settings.JWT_EXPIRE_HOURS))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 def authenticate_token(token: str) -> dict:
     """
     Xác thực JWT token gửi từ header Authorization: Bearer <token>
-    Truy vấn thông tin người dùng và vai trò (role) từ Supabase Auth & public.users
+    Hỗ trợ cả Local PyJWT Token và fallback sang Supabase Auth Token
     """
-    demo_match = DEMO_TOKEN_PATTERN.fullmatch(token)
-    if demo_match and settings.ENABLE_DEMO_AUTH:
-        role = demo_match.group(1).upper()
-        return {
-            "id": f"usr_{role.lower()}_demo",
-            "email": f"{role.lower()}@firealert.iot",
-            "full_name": f"{role} (Demo)",
-            "role": role,
-            "is_active": True,
-        }
-
     try:
-        # Xác thực Token trực tiếp với Supabase Auth
-        auth_response = supabase.auth.get_user(token)
-        if not auth_response or not auth_response.user:
+        user_id = None
+        try:
+            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+            user_id = payload.get("sub")
+        except jwt.PyJWTError:
+            auth_response = supabase.auth.get_user(token)
+            if auth_response and auth_response.user:
+                user_id = str(auth_response.user.id)
+
+        if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token không hợp lệ hoặc đã hết hạn"
             )
-        
-        user_id = str(auth_response.user.id)
 
         # Lấy thông tin vai trò từ bảng public.users
         user_record = supabase.table("users").select("*").eq("id", user_id).single().execute()
@@ -80,14 +89,8 @@ def write_audit_log(user_id: str, action: str, request: Request) -> None:
     """
     client_ip = request.client.host if request.client else "unknown"
     try:
-        UUID(str(user_id))
-    except ValueError:
-        # Demo users are not persisted in Supabase Auth/public.users.
-        return
-
-    try:
         supabase.table("audit_logs").insert({
-            "user_id": user_id,
+            "user_id": str(user_id),
             "action": action,
             "ip_address": client_ip
         }).execute()

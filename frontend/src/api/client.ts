@@ -41,14 +41,12 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
-    const token = localStorage.getItem('fire_alert_token');
-    // Không tự động đăng xuất nếu đang sử dụng tài khoản Demo hoặc backend chưa kích hoạt Supabase Auth
-    const isDemoToken = !token || token.startsWith('demo_token_');
-    if (error.response?.status === 401 && !isDemoToken) {
+    const isLoginRequest = error.config?.url?.includes('/auth/login');
+    if (error.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem('fire_alert_token');
       localStorage.removeItem('fire_alert_user');
       if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+        window.location.href = '/login?reason=session_expired';
       }
     }
     return Promise.reject(error);

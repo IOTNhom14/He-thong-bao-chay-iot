@@ -63,49 +63,6 @@ export interface CommandLogItem {
   ack_message: string | null;
 }
 
-export const DEFAULT_DEMO_DEVICES: DeviceItem[] = [
-  {
-    id: 'ESP32_FIRE_001',
-    name: 'Node Báo Cháy Phòng Khách',
-    location: 'Tầng 1 - Phòng Khách',
-    status: 'ONLINE',
-    temp_threshold: 55,
-    gas_threshold: 400,
-    is_muted: false,
-    camera_url: 'http://192.168.1.238:8080/shot.jpg',
-    camera_stream_url: 'http://192.168.1.238:8080/video',
-    last_seen: new Date().toISOString(),
-    created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-    updated_at: new Date().toISOString(),
-    latest_temp: 29.8,
-    latest_gas: 185.4,
-    latest_humidity: 62.0,
-    latest_flame: false,
-    latest_alarm: false,
-    latest_telemetry_time: Date.now(),
-  },
-  {
-    id: 'ESP32_FIRE_002',
-    name: 'Node Báo Cháy Nhà Bếp',
-    location: 'Tầng 1 - Khu Vực Bếp Gas',
-    status: 'ONLINE',
-    temp_threshold: 60,
-    gas_threshold: 450,
-    is_muted: false,
-    camera_url: null,
-    camera_stream_url: null,
-    last_seen: new Date().toISOString(),
-    created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-    updated_at: new Date().toISOString(),
-    latest_temp: 34.5,
-    latest_gas: 245.0,
-    latest_humidity: 58.0,
-    latest_flame: false,
-    latest_alarm: false,
-    latest_telemetry_time: Date.now(),
-  },
-];
-
 export const DeviceApi = {
   // Lấy danh sách thiết bị từ Gateway API
   async getDevices(): Promise<DeviceItem[]> {
@@ -165,6 +122,7 @@ export const DeviceApi = {
     camera_url?: string;
     provision_from_device_id?: string;
     status?: 'ONLINE' | 'OFFLINE';
+    assigned_user_id?: string | null;
   }): Promise<DeviceItem> {
     try {
       const payload = {
@@ -175,7 +133,7 @@ export const DeviceApi = {
         temp_threshold: data.temp_threshold ?? 55,
         provision_from_device_id: data.provision_from_device_id || null,
         camera_url: data.camera_url || null,
-        assigned_user_id: null,
+        assigned_user_id: data.assigned_user_id || null,
       };
       const res = await apiClient.post<any>('/devices', payload);
       const raw = res.data?.data || res.data;

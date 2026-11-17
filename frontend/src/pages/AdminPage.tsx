@@ -26,6 +26,7 @@ import {
   X,
   Layers,
   Check,
+  AlertCircle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -50,8 +51,94 @@ export const AdminPage: React.FC = () => {
     password: '',
     role: 'OPERATOR',
   });
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [addUserErrors, setAddUserErrors] = useState<{
+    username?: string;
+    email?: string;
+    password?: string;
+    confirmPassword?: string;
+    role?: string;
+  }>({});
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
   const [selectedUserForAssign, setSelectedUserForAssign] = useState<UserItem | null>(null);
   const [deviceToAssign, setDeviceToAssign] = useState('');
+
+  const validateAddUserForm = (data: CreateUserInput, confirmPwd: string) => {
+    const errors: {
+      username?: string;
+      email?: string;
+      password?: string;
+      confirmPassword?: string;
+      role?: string;
+    } = {};
+
+    const trimmedUsername = data.username.trim();
+    if (!trimmedUsername) {
+      errors.username = 'Tên đăng nhập không được để trống';
+    } else if (trimmedUsername.length < 3) {
+      errors.username = 'Tên đăng nhập tối thiểu 3 ký tự';
+    } else if (trimmedUsername.length > 50) {
+      errors.username = 'Tên đăng nhập tối đa 50 ký tự';
+    } else if (!/^[a-zA-Z0-9_-]+$/.test(trimmedUsername)) {
+      errors.username = 'Chỉ cho phép chữ cái, chữ số, gạch dưới (_) và gạch ngang (-)';
+    }
+
+    const trimmedEmail = data.email.trim();
+    if (!trimmedEmail) {
+      errors.email = 'Địa chỉ email không được để trống';
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedEmail)) {
+        errors.email = 'Địa chỉ email không đúng định dạng (ví dụ: user@example.com)';
+      }
+    }
+
+    if (!data.password) {
+      errors.password = 'Mật khẩu khởi tạo không được để trống';
+    } else if (data.password.length < 6) {
+      errors.password = 'Mật khẩu phải có độ dài tối thiểu 6 ký tự';
+    }
+
+    if (!confirmPwd) {
+      errors.confirmPassword = 'Vui lòng xác nhận lại mật khẩu';
+    } else if (data.password !== confirmPwd) {
+      errors.confirmPassword = 'Mật khẩu xác nhận không trùng khớp';
+    }
+
+    if (!data.role || !['ADMIN', 'OPERATOR', 'VIEWER'].includes(data.role)) {
+      errors.role = 'Vui lòng chọn vai trò hợp lệ trong hệ thống';
+    }
+
+    return errors;
+  };
+
+  const handleOpenAddUserModal = () => {
+    setNewUserData({ username: '', email: '', password: '', role: 'OPERATOR' });
+    setConfirmPassword('');
+    setAddUserErrors({});
+    setIsAddUserModalOpen(true);
+  };
+
+  const handleCloseAddUserModal = () => {
+    setIsAddUserModalOpen(false);
+    setNewUserData({ username: '', email: '', password: '', role: 'OPERATOR' });
+    setConfirmPassword('');
+    setAddUserErrors({});
+  };
+
+  const handleUserFieldChange = (field: keyof CreateUserInput, value: string) => {
+    setNewUserData((prev) => ({ ...prev, [field]: value }));
+    if (addUserErrors[field as keyof typeof addUserErrors]) {
+      setAddUserErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  const handleConfirmPasswordChange = (value: string) => {
+    setConfirmPassword(value);
+    if (addUserErrors.confirmPassword) {
+      setAddUserErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+    }
+  };
 
   const fetchUsers = useCallback(async () => {
     setIsLoadingUsers(true);
@@ -78,18 +165,28 @@ export const AdminPage: React.FC = () => {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserData.username || !newUserData.password) {
-      showError('Thiếu dữ liệu', 'Vui lòng nhập tên đăng nhập và mật khẩu');
+    const validationErrors = validateAddUserForm(newUserData, confirmPassword);
+    if (Object.keys(validationErrors).length > 0) {
+      setAddUserErrors(validationErrors);
       return;
     }
+
+    setAddUserErrors({});
+    setIsSubmittingUser(true);
     try {
-      await UserApi.createUser(newUserData);
-      showSuccess('Tạo tài khoản thành công', `Đã tạo người dùng ${newUserData.username} (${newUserData.role})`);
-      setIsAddUserModalOpen(false);
-      setNewUserData({ username: '', email: '', password: '', role: 'OPERATOR' });
+      await UserApi.createUser({
+        username: newUserData.username.trim(),
+        email: newUserData.email.trim(),
+        password: newUserData.password,
+        role: newUserData.role,
+      });
+      showSuccess('Tạo tài khoản thành công', `Đã tạo người dùng ${newUserData.username.trim()} (${newUserData.role})`);
+      handleCloseAddUserModal();
       fetchUsers();
     } catch (err: any) {
-      showError('Tạo tài khoản thất bại', err.response?.data?.error || err.message);
+      showError('Tạo tài khoản thất bại', err.response?.data?.error || err.response?.data?.detail || err.message);
+    } finally {
+      setIsSubmittingUser(false);
     }
   };
 
@@ -181,6 +278,7 @@ export const AdminPage: React.FC = () => {
     gas_threshold: 400,
     camera_url: '',
     provision_from_device_id: 'ESP_TEST02',
+    assigned_user_id: '',
   });
 
   const fetchDevices = useCallback(async () => {
@@ -202,7 +300,10 @@ export const AdminPage: React.FC = () => {
       return;
     }
     try {
-      await DeviceApi.createDevice(newDeviceData);
+      await DeviceApi.createDevice({
+        ...newDeviceData,
+        assigned_user_id: newDeviceData.assigned_user_id || currentUser?.id || null,
+      });
       showSuccess('Tạo thiết bị thành công', `Đã thêm thiết bị mới: ${newDeviceData.id}`);
       setIsAddDeviceModalOpen(false);
       setNewDeviceData({
@@ -213,6 +314,7 @@ export const AdminPage: React.FC = () => {
         gas_threshold: 400,
         camera_url: '',
         provision_from_device_id: 'ESP_TEST02',
+        assigned_user_id: '',
       });
       fetchDevices();
     } catch (err: any) {
@@ -505,7 +607,7 @@ export const AdminPage: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={() => setIsAddUserModalOpen(true)}
+                  onClick={handleOpenAddUserModal}
                   className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-red-700 hover:bg-red-600 text-white text-xs font-semibold border border-red-600 transition-colors"
                 >
                   <Plus size={14} />
@@ -1090,80 +1192,138 @@ export const AdminPage: React.FC = () => {
                 <Users size={16} className="text-zinc-400" /> Thêm Người dùng Mới
               </h3>
               <button
-                onClick={() => setIsAddUserModalOpen(false)}
-                className="text-zinc-400 hover:text-white transition-colors"
+                type="button"
+                onClick={handleCloseAddUserModal}
+                disabled={isSubmittingUser}
+                className="text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
               >
                 <X size={16} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="space-y-3 text-xs font-mono">
+            <form onSubmit={handleCreateUser} noValidate className="space-y-3 text-xs font-mono">
               <div>
-                <label className="text-zinc-300 block mb-1 font-sans">Tên đăng nhập (Username) *:</label>
+                <label className="text-zinc-300 block mb-1 font-sans">
+                  Tên đăng nhập (Username) <span className="text-red-400">*</span>:
+                </label>
                 <input
                   type="text"
-                  required
                   placeholder="ví dụ: technician01"
                   value={newUserData.username}
-                  onChange={(e) => setNewUserData((prev) => ({ ...prev, username: e.target.value }))}
-                  className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 focus:border-zinc-600 focus:outline-none"
+                  onChange={(e) => handleUserFieldChange('username', e.target.value)}
+                  className={`w-full bg-[#090a0f] border ${addUserErrors.username ? 'border-red-500 focus:border-red-500' : 'border-zinc-800 focus:border-zinc-600'} rounded px-2.5 py-1.5 text-zinc-100 focus:outline-none transition-colors`}
+                  aria-invalid={!!addUserErrors.username}
                 />
+                {addUserErrors.username && (
+                  <p className="text-red-400 text-[11px] mt-1 flex items-center gap-1 font-sans" role="alert">
+                    <AlertCircle size={12} className="shrink-0" />
+                    <span>{addUserErrors.username}</span>
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="text-zinc-300 block mb-1 font-sans">Email:</label>
+                <label className="text-zinc-300 block mb-1 font-sans">
+                  Email <span className="text-red-400">*</span>:
+                </label>
                 <input
                   type="email"
                   placeholder="ví dụ: tech@firealert.iot"
                   value={newUserData.email}
-                  onChange={(e) => setNewUserData((prev) => ({ ...prev, email: e.target.value }))}
-                  className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 focus:border-zinc-600 focus:outline-none"
+                  onChange={(e) => handleUserFieldChange('email', e.target.value)}
+                  className={`w-full bg-[#090a0f] border ${addUserErrors.email ? 'border-red-500 focus:border-red-500' : 'border-zinc-800 focus:border-zinc-600'} rounded px-2.5 py-1.5 text-zinc-100 focus:outline-none transition-colors`}
+                  aria-invalid={!!addUserErrors.email}
                 />
+                {addUserErrors.email && (
+                  <p className="text-red-400 text-[11px] mt-1 flex items-center gap-1 font-sans" role="alert">
+                    <AlertCircle size={12} className="shrink-0" />
+                    <span>{addUserErrors.email}</span>
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="text-zinc-300 block mb-1 font-sans">Mật khẩu khởi tạo *:</label>
+                <label className="text-zinc-300 block mb-1 font-sans">
+                  Mật khẩu khởi tạo <span className="text-red-400">*</span>:
+                </label>
                 <input
                   type="password"
-                  required
                   placeholder="Tối thiểu 6 ký tự"
                   value={newUserData.password}
-                  onChange={(e) => setNewUserData((prev) => ({ ...prev, password: e.target.value }))}
-                  className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 focus:border-zinc-600 focus:outline-none"
+                  onChange={(e) => handleUserFieldChange('password', e.target.value)}
+                  className={`w-full bg-[#090a0f] border ${addUserErrors.password ? 'border-red-500 focus:border-red-500' : 'border-zinc-800 focus:border-zinc-600'} rounded px-2.5 py-1.5 text-zinc-100 focus:outline-none transition-colors`}
+                  aria-invalid={!!addUserErrors.password}
                 />
+                {addUserErrors.password && (
+                  <p className="text-red-400 text-[11px] mt-1 flex items-center gap-1 font-sans" role="alert">
+                    <AlertCircle size={12} className="shrink-0" />
+                    <span>{addUserErrors.password}</span>
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="text-zinc-300 block mb-1 font-sans">Vai trò (Role) *:</label>
+                <label className="text-zinc-300 block mb-1 font-sans">
+                  Xác nhận mật khẩu <span className="text-red-400">*</span>:
+                </label>
+                <input
+                  type="password"
+                  placeholder="Nhập lại mật khẩu khởi tạo"
+                  value={confirmPassword}
+                  onChange={(e) => handleConfirmPasswordChange(e.target.value)}
+                  className={`w-full bg-[#090a0f] border ${addUserErrors.confirmPassword ? 'border-red-500 focus:border-red-500' : 'border-zinc-800 focus:border-zinc-600'} rounded px-2.5 py-1.5 text-zinc-100 focus:outline-none transition-colors`}
+                  aria-invalid={!!addUserErrors.confirmPassword}
+                />
+                {addUserErrors.confirmPassword && (
+                  <p className="text-red-400 text-[11px] mt-1 flex items-center gap-1 font-sans" role="alert">
+                    <AlertCircle size={12} className="shrink-0" />
+                    <span>{addUserErrors.confirmPassword}</span>
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-zinc-300 block mb-1 font-sans">
+                  Vai trò (Role) <span className="text-red-400">*</span>:
+                </label>
                 <select
                   value={newUserData.role}
                   onChange={(e) =>
-                    setNewUserData((prev) => ({
-                      ...prev,
-                      role: e.target.value as 'ADMIN' | 'OPERATOR' | 'VIEWER',
-                    }))
+                    handleUserFieldChange('role', e.target.value as 'ADMIN' | 'OPERATOR' | 'VIEWER')
                   }
-                  className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 focus:border-zinc-600 focus:outline-none"
+                  className={`w-full bg-[#090a0f] border ${addUserErrors.role ? 'border-red-500 focus:border-red-500' : 'border-zinc-800 focus:border-zinc-600'} rounded px-2.5 py-1.5 text-zinc-100 focus:outline-none transition-colors`}
+                  aria-invalid={!!addUserErrors.role}
                 >
                   <option value="OPERATOR">Kỹ thuật viên điều khiển (OPERATOR)</option>
                   <option value="VIEWER">Giám sát viên chỉ đọc (VIEWER)</option>
                   <option value="ADMIN">Quản trị viên toàn quyền (ADMIN)</option>
                 </select>
+                {addUserErrors.role && (
+                  <p className="text-red-400 text-[11px] mt-1 flex items-center gap-1 font-sans" role="alert">
+                    <AlertCircle size={12} className="shrink-0" />
+                    <span>{addUserErrors.role}</span>
+                  </p>
+                )}
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2 font-sans">
                 <button
                   type="button"
-                  onClick={() => setIsAddUserModalOpen(false)}
-                  className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold"
+                  onClick={handleCloseAddUserModal}
+                  disabled={isSubmittingUser}
+                  className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold disabled:opacity-50 transition-colors"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-3 py-1.5 rounded bg-red-700 hover:bg-red-600 text-white font-semibold transition-colors border border-red-600"
+                  disabled={isSubmittingUser}
+                  className="px-3 py-1.5 rounded bg-red-700 hover:bg-red-600 text-white font-semibold transition-colors border border-red-600 disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  Tạo tài khoản
+                  {isSubmittingUser && (
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  <span>{isSubmittingUser ? 'Đang tạo...' : 'Tạo tài khoản'}</span>
                 </button>
               </div>
             </form>
@@ -1347,6 +1507,22 @@ export const AdminPage: React.FC = () => {
                 <p className="text-[11px] text-zinc-500 mt-1 font-sans">
                   ESP32 này sẽ nhận lệnh MQTT, đổi sang ID mới và tự kết nối lại.
                 </p>
+              </div>
+
+              <div>
+                <label className="text-zinc-300 block mb-1 font-sans">Người phụ trách thiết bị:</label>
+                <select
+                  value={newDeviceData.assigned_user_id}
+                  onChange={(e) => setNewDeviceData((prev) => ({ ...prev, assigned_user_id: e.target.value }))}
+                  className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 focus:border-zinc-600 focus:outline-none"
+                >
+                  <option value="">-- Mặc định (Tự gán cho {currentUser?.fullName || currentUser?.username || 'tôi'}) --</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.username} ({u.role}) {u.email ? `- ${u.email}` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2 font-sans">

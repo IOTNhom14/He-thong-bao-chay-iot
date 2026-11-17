@@ -6,6 +6,7 @@ import { CommandTrackerProvider } from './context/CommandTrackerContext';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { AdminPage } from './pages/AdminPage';
+import { ForbiddenPage } from './pages/ForbiddenPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 // Public Route: Nếu đã đăng nhập thì tự chuyển vào Dashboard
@@ -44,6 +45,14 @@ export const App: React.FC = () => {
                 element={
                   <ProtectedRoute allowedRoles={['ADMIN']}>
                     <AdminPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/403"
+                element={
+                  <ProtectedRoute>
+                    <ForbiddenPage />
                   </ProtectedRoute>
                 }
               />

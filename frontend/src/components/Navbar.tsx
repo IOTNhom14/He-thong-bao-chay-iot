@@ -1,9 +1,8 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth, DEMO_CREDENTIALS } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import {
   Flame,
-  Shield,
   LogOut,
   Radio,
   LayoutDashboard,
@@ -24,7 +23,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   connectionStatus = 'DISCONNECTED',
   reconnectAttempts = 0,
 }) => {
-  const { user, logout, switchRoleDemo, isViewer, isAdmin } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const isAdminPage = location.pathname.startsWith('/admin');
@@ -60,13 +59,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const statusInfo = getStatusBadge();
 
-  // Xử lý khi bấm nút Cấu hình Hệ thống: Nếu không phải Admin thì đá văng ra màn hình đăng nhập
+  // Xử lý khi bấm nút Cấu hình Hệ thống: Nếu không phải Admin thì chuyển sang màn hình 403
   const handleAdminNavClick = (e: React.MouseEvent) => {
     if (!isAdmin) {
       e.preventDefault();
-      // Chấm dứt phiên làm việc hiện tại và đá văng về trang đăng nhập
-      logout();
-      navigate('/login?reason=admin_required&redirect=/admin', { replace: true });
+      navigate('/403');
     }
   };
 
@@ -133,7 +130,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
         </div>
 
-        {/* Nhóm Bên phải: Trạng thái Gateway + Ca trực Demo + Thông tin Tài khoản */}
+        {/* Nhóm Bên phải: Trạng thái Gateway + Thông tin Tài khoản */}
         <div className="flex items-center gap-2.5 flex-wrap justify-end w-full md:w-auto">
           {/* Trạng thái Gateway / MQTT */}
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-[#12141a] border border-zinc-800 text-xs font-mono">
@@ -142,43 +139,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className={`font-semibold ${statusInfo.color}`}>{statusInfo.text}</span>
           </div>
 
-          {/* Quick Role Switcher (Chuyển nhanh ca trực) */}
-          <div className="flex items-center gap-0.5 bg-[#12141a] p-1 rounded border border-zinc-800 text-xs font-mono">
-            <span className="text-zinc-500 px-1.5 hidden lg:flex items-center gap-1 text-[11px]">
-              <Shield className="w-3 h-3 text-zinc-500" /> Ca trực:
-            </span>
-            {(['ADMIN', 'OPERATOR', 'VIEWER'] as UserRole[]).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => switchRoleDemo(r)}
-                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
-                  user?.role === r
-                    ? r === 'ADMIN'
-                      ? 'bg-red-700 text-white shadow-sm'
-                      : r === 'OPERATOR'
-                      ? 'bg-blue-700 text-white shadow-sm'
-                      : 'bg-zinc-700 text-white shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-                }`}
-                title={DEMO_CREDENTIALS[r].desc}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
-
           {/* Thông tin người trực */}
           {user && (
             <div className="flex items-center gap-2 pl-2 border-l border-zinc-800">
-              <div className="text-right hidden md:block">
-                <div className="text-xs font-medium text-zinc-200 truncate max-w-[120px]">
-                  {user.fullName}
+              <div className="text-right">
+                <div
+                  className="text-xs font-semibold text-zinc-200 truncate max-w-[140px]"
+                  title={user.username || user.fullName || 'viewer'}
+                >
+                  {user.username || user.fullName || 'viewer'}
                 </div>
                 <div className="text-[10px] font-mono mt-0.5">
                   <span className={`px-1.5 py-0.2 border rounded ${getRoleBadge(user.role)}`}>
                     {user.role}
-                    {isViewer && ' (READONLY)'}
                   </span>
                 </div>
               </div>

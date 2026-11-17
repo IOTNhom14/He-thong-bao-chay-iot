@@ -15,12 +15,18 @@ def get_device_telemetry_history(
     Truy vấn dữ liệu telemetry gần nhất của một thiết bị.
     Đảo ngược thứ tự thời gian tăng dần để frontend hiển thị đồ thị từ trái sang phải.
     """
-    res = (
-        supabase.table("telemetry")
-        .select("*")
-        .eq("device_id", device_id)
-        .order("timestamp", desc=True)
-        .limit(limit)
-        .execute()
-    )
-    return list(reversed(res.data))
+    try:
+        res = (
+            supabase.table("telemetry")
+            .select("*")
+            .eq("device_id", device_id)
+            .order("timestamp", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        if res.data:
+            return list(reversed(res.data))
+    except Exception as exc:
+        print(f"[TELEMETRY HISTORY ERROR] {exc}")
+
+    return []
