@@ -244,5 +244,187 @@ class TestRbacBolaDeviceAccess(unittest.TestCase):
         valid_secret = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
         self.assertEqual(Settings.validate_jwt_secret_strength(valid_secret), valid_secret)
 
+    @patch("app.api.v1.endpoints.audit.supabase")
+    def test_audit_logs_action_alias_and_username_mapping(self, mock_audit_sb):
+        from app.api.v1.endpoints.audit import get_audit_logs
+
+        mock_users_q = MagicMock()
+        mock_users_q.select.return_value.execute.return_value.data = [
+            {"id": "uuid-admin-1", "username": "admin_ptit", "email": "admin@firealert.iot"}
+        ]
+
+        mock_logs_q = MagicMock()
+        mock_logs_q.select.return_value = mock_logs_q
+        mock_logs_q.or_.return_value = mock_logs_q
+        mock_logs_q.ilike.return_value = mock_logs_q
+        mock_logs_q.order.return_value = mock_logs_q
+        mock_logs_q.range.return_value = mock_logs_q
+        mock_logs_q.execute.return_value.count = 2
+        mock_logs_q.execute.return_value.data = [
+            {
+                "id": 10,
+                "user_id": "uuid-admin-1",
+                "action": "SEND_COMMAND:MUTE_BUZZER->To:ESP32_FIRE_001",
+                "ip_address": "127.0.0.1",
+                "created_at": "2026-11-18T00:00:00+00:00",
+            },
+            {
+                "id": 11,
+                "user_id": "bad_actor",
+                "action": "LOGIN_FAILED:bad_actor",
+                "ip_address": "10.0.0.2",
+                "created_at": "2026-11-18T00:01:00+00:00",
+            },
+        ]
+
+        def route_table(name):
+            return mock_users_q if name == "users" else mock_logs_q
+
+        mock_audit_sb.table.side_effect = route_table
+
+        res = get_audit_logs(
+            action="COMMAND_SENT",
+            username=None,
+            from_date=None,
+            to_date=None,
+            limit=50,
+            offset=0,
+            current_user={"id": "uuid-admin-1", "role": "ADMIN"},
+        )
+
+        # Kiểm tra alias COMMAND_SENT ánh xạ sang cả SEND_COMMAND lẫn COMMAND_SENT
+        mock_logs_q.or_.assert_called_once_with("action.ilike.*SEND_COMMAND*,action.ilike.*COMMAND_SENT*")
+        self.assertEqual(res["total"], 2)
+        self.assertEqual(res["data"][0]["username"], "admin_ptit")
+        self.assertEqual(res["data"][0]["action"], "SEND_COMMAND")
+        self.assertEqual(res["data"][0]["target"], "MUTE_BUZZER->To:ESP32_FIRE_001")
+        self.assertTrue(res["data"][0]["success"])
+        self.assertEqual(res["data"][1]["action"], "LOGIN_FAILED")
+        self.assertFalse(res["data"][1]["success"])
+
+    @patch("app.api.v1.endpoints.audit.supabase")
+    def test_audit_logs_compound_action_and_username_filter(self, mock_audit_sb):
+        import httpx
+        from app.api.v1.endpoints.audit import get_audit_logs
+
+        mock_users_q = MagicMock()
+        mock_users_q.select.return_value.execute.return_value.data = [
+            {"id": "uuid-admin-1", "username": "admin_ptit", "email": "admin@firealert.iot"}
+        ]
+
+        mock_logs_q = MagicMock()
+        mock_logs_q.params = httpx.QueryParams()
+        mock_logs_q.select.return_value = mock_logs_q
+        mock_logs_q.order.return_value = mock_logs_q
+        mock_logs_q.range.return_value = mock_logs_q
+        mock_logs_q.execute.return_value.count = 0
+        mock_logs_q.execute.return_value.data = []
+
+        mock_audit_sb.table.side_effect = lambda name: mock_users_q if name == "users" else mock_logs_q
+
+        get_audit_logs(
+            action="SEND_COMMAND",
+            username="admin_ptit",
+            from_date=None,
+            to_date=None,
+            limit=50,
+            offset=0,
+            current_user={"id": "uuid-admin-1", "role": "ADMIN"},
+        )
+
+        and_param = mock_logs_q.params.get("and")
+        self.assertIsNotNone(and_param)
+        self.assertIn("action.ilike.*SEND_COMMAND*", and_param)
+        self.assertIn("user_id.in.(uuid-admin-1)", and_param)
+
+    @patch("app.api.v1.endpoints.auth.write_audit_log")
+    @patch("app.api.v1.endpoints.auth.supabase")
+    def test_login_writes_audit_log_on_failure(self, mock_auth_sb, mock_write_audit):
+        from app.api.v1.endpoints.auth import login
+        from app.schemas.user import LoginRequest
+
+        mock_auth_sb.table.return_value.select.return_value.or_.return_value.limit.return_value.execute.return_value.data = []
+        req = MagicMock()
+
+        with self.assertRaises(HTTPException) as ctx:
+            login(payload=LoginRequest(username="unknown_user", password="wrong"), request=req)
+
+        self.assertEqual(ctx.exception.status_code, 401)
+        mock_write_audit.assert_called_once_with("unknown_user", "LOGIN_FAILED:unknown_user", req)
+
+    def test_update_thresholds_decommissioned_device_blocked(self):
+        from app.api.v1.endpoints.devices import update_device_thresholds
+        from app.schemas.device import ThresholdUpdateRequest
+
+        decommissioned_dev = {
+            "device_id": "ESP32_FIRE_001",
+            "status": "DECOMMISSIONED",
+            "assigned_user_id": "user-uuid-operator-1",
+        }
+        payload = ThresholdUpdateRequest(smoke_threshold=450.0, temp_threshold=60.0)
+        req = MagicMock()
+        admin_user = {"id": "admin-uuid", "role": "ADMIN"}
+
+        with self.assertRaises(HTTPException) as ctx:
+            update_device_thresholds(
+                device_id="ESP32_FIRE_001",
+                payload=payload,
+                request=req,
+                device=decommissioned_dev,
+                current_user=admin_user,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("DECOMMISSIONED", ctx.exception.detail)
+
+    def test_update_thresholds_offline_or_stale_device_blocked(self):
+        from datetime import datetime, timedelta, timezone
+        from app.api.v1.endpoints.devices import update_device_thresholds, _is_device_online
+        from app.schemas.device import ThresholdUpdateRequest
+
+        payload = ThresholdUpdateRequest(smoke_threshold=450.0, temp_threshold=60.0)
+        req = MagicMock()
+        admin_user = {"id": "admin-uuid", "role": "ADMIN"}
+
+        # 1. Trạng thái OFFLINE -> HTTP 409
+        offline_dev = {
+            "device_id": "ESP32_FIRE_001",
+            "status": "OFFLINE",
+            "last_seen": datetime.now(timezone.utc).isoformat(),
+        }
+        with self.assertRaises(HTTPException) as ctx1:
+            update_device_thresholds(
+                device_id="ESP32_FIRE_001",
+                payload=payload,
+                request=req,
+                device=offline_dev,
+                current_user=admin_user,
+            )
+        self.assertEqual(ctx1.exception.status_code, 409)
+
+        # 2. Trạng thái ACTIVE nhưng last_seen quá hạn (> 10s) -> HTTP 409
+        stale_dev = {
+            "device_id": "ESP32_FIRE_001",
+            "status": "ACTIVE",
+            "last_seen": (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat(),
+        }
+        with self.assertRaises(HTTPException) as ctx2:
+            update_device_thresholds(
+                device_id="ESP32_FIRE_001",
+                payload=payload,
+                request=req,
+                device=stale_dev,
+                current_user=admin_user,
+            )
+        self.assertEqual(ctx2.exception.status_code, 409)
+
+        # 3. Trạng thái ACTIVE và last_seen mới -> ONLINE
+        online_dev = {
+            "device_id": "ESP32_FIRE_001",
+            "status": "ACTIVE",
+            "last_seen": datetime.now(timezone.utc).isoformat(),
+        }
+        self.assertTrue(_is_device_online(online_dev))
+
 if __name__ == "__main__":
     unittest.main()

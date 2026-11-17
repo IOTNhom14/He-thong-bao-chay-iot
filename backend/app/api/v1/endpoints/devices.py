@@ -403,6 +403,29 @@ def delete_decommissioned_device(
         "device_id": device_id,
     }
 
+DEVICE_ONLINE_WINDOW_SEC = 10
+
+
+def _is_device_online(device: dict, max_stale_sec: int = DEVICE_ONLINE_WINDOW_SEC) -> bool:
+    if device.get("status") not in ("ACTIVE", "ONLINE", "PROVISIONED"):
+        return False
+    raw_last_seen = device.get("last_seen")
+    if not raw_last_seen:
+        return False
+    try:
+        if isinstance(raw_last_seen, (int, float)):
+            last_seen_dt = datetime.fromtimestamp(float(raw_last_seen), tz=timezone.utc)
+        elif isinstance(raw_last_seen, str):
+            last_seen_dt = datetime.fromisoformat(raw_last_seen.replace("Z", "+00:00"))
+            if last_seen_dt.tzinfo is None:
+                last_seen_dt = last_seen_dt.replace(tzinfo=timezone.utc)
+        else:
+            return False
+    except (ValueError, TypeError, OSError):
+        return False
+    return (datetime.now(timezone.utc) - last_seen_dt).total_seconds() <= max_stale_sec
+
+
 @router.put("/{device_id}/thresholds", summary="Cập nhật ngưỡng khói và nhiệt độ từ xa (ADMIN & OPERATOR sở hữu thiết bị)")
 def update_device_thresholds(
     device_id: str,
@@ -411,6 +434,17 @@ def update_device_thresholds(
     device: dict = Depends(require_device_access(["ADMIN", "OPERATOR"])),
     current_user: dict = Depends(get_current_user),
 ):
+    if device.get("status") == "DECOMMISSIONED":
+        raise HTTPException(
+            status_code=400,
+            detail="Thiết bị đã bị thu hồi (DECOMMISSIONED), không thể cập nhật ngưỡng cảnh báo"
+        )
+    if not _is_device_online(device):
+        raise HTTPException(
+            status_code=409,
+            detail="Thiết bị đang ngoại tuyến (OFFLINE), chỉ có thể cập nhật ngưỡng khi thiết bị ONLINE"
+        )
+
     res = supabase.table("devices").update({
         "smoke_threshold": payload.smoke_threshold,
         "temp_threshold": payload.temp_threshold,

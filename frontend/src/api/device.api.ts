@@ -173,6 +173,24 @@ export const DeviceApi = {
     return res.data?.data || res.data;
   },
 
+  async updateThresholds(
+    id: string,
+    payload: { temp_threshold: number; smoke_threshold: number }
+  ): Promise<{ command_id: string; device: DeviceItem }> {
+    const res = await apiClient.put<any>(`/devices/${id}/thresholds`, payload);
+    const data = res.data?.data || res.data;
+    const rawDev = data?.device || {};
+    return {
+      command_id: data?.command_id || '',
+      device: {
+        ...rawDev,
+        id: rawDev.id || rawDev.device_id || id,
+        temp_threshold: rawDev.temp_threshold ?? payload.temp_threshold,
+        gas_threshold: rawDev.gas_threshold ?? rawDev.smoke_threshold ?? payload.smoke_threshold,
+      },
+    };
+  },
+
   async updateCamera(id: string, cameraUrl: string | null): Promise<DeviceItem> {
     const res = await apiClient.put<any>(`/devices/${id}/camera`, {
       camera_url: cameraUrl,

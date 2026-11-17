@@ -182,6 +182,11 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
   const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    setTempThresholdInput((device.temp_threshold ?? 55).toString());
+    setGasThresholdInput((device.gas_threshold ?? 400).toString());
+  }, [device.id, device.temp_threshold, device.gas_threshold]);
+
   // Khởi tạo giá trị mặc định cho from/to picker
   useEffect(() => {
     const now = new Date();
@@ -274,6 +279,61 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
           status === 403
             ? `[HTTP 403 FORBIDDEN - BỊ CHẶN]: ${errorMsg}`
             : `Lỗi phát lệnh (${status || 'Network'}): ${errorMsg}`,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdateThresholds = async () => {
+    if (device.status !== 'ONLINE') {
+      setActionFeedback({
+        type: 'error',
+        message: `Thiết bị đang ${device.status}, chỉ có thể cập nhật ngưỡng khi thiết bị ONLINE.`,
+      });
+      return;
+    }
+
+    const tempVal = parseFloat(tempThresholdInput);
+    const gasVal = parseFloat(gasThresholdInput);
+
+    if (Number.isNaN(tempVal) || tempVal <= 20 || tempVal > 100) {
+      setActionFeedback({
+        type: 'error',
+        message: 'Ngưỡng nhiệt độ phải nằm trong khoảng (20°C, 100°C].',
+      });
+      return;
+    }
+    if (Number.isNaN(gasVal) || gasVal <= 50 || gasVal > 2000) {
+      setActionFeedback({
+        type: 'error',
+        message: 'Ngưỡng khí Gas/Khói phải nằm trong khoảng (50 PPM, 2000 PPM].',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setActionFeedback(null);
+    try {
+      const res = await DeviceApi.updateThresholds(device.id, {
+        temp_threshold: tempVal,
+        smoke_threshold: gasVal,
+      });
+      setActionFeedback({
+        type: 'success',
+        message: `Đã cập nhật ngưỡng (${tempVal}°C · ${gasVal} PPM) và gửi xuống ESP32! Mã lệnh: ${res.command_id}.`,
+      });
+      loadCommands();
+      onDeviceUpdated?.();
+    } catch (err: any) {
+      const status = err.response?.status;
+      const errorMsg = err.response?.data?.detail || err.response?.data?.error || err.message;
+      setActionFeedback({
+        type: 'error',
+        message:
+          status === 403
+            ? `[HTTP 403 FORBIDDEN - BỊ CHẶN]: ${errorMsg}`
+            : `Lỗi cập nhật ngưỡng (${status || 'Network'}): ${errorMsg}`,
       });
     } finally {
       setIsSubmitting(false);
@@ -839,6 +899,12 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                   <span>Cập nhật ngưỡng cảm biến thiết bị (UPDATE_THRESHOLD)</span>
                 </div>
 
+                {!isViewer && device.status !== 'ONLINE' && (
+                  <div className="p-2.5 rounded bg-amber-950/60 border border-amber-700/70 text-amber-200 text-xs font-sans">
+                    Thiết bị đang ngoại tuyến (<strong className="font-mono">{device.status}</strong>). Chỉ có thể cập nhật ngưỡng khi thiết bị <strong>ONLINE</strong> để tránh lệch cấu hình với phần cứng.
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
                   <div>
                     <label className="text-zinc-400 block mb-1">Ngưỡng nhiệt độ báo cháy (°C):</label>
@@ -847,7 +913,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                       step="0.5"
                       value={tempThresholdInput}
                       onChange={(e) => setTempThresholdInput(e.target.value)}
-                      disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
+                      disabled={isViewer || device.status !== 'ONLINE' || isSubmitting || isDeviceWaitingAck(device.id)}
                       className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 font-mono focus:border-zinc-600 focus:outline-none disabled:opacity-50"
                     />
                   </div>
@@ -859,27 +925,18 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({ device, on
                       step="10"
                       value={gasThresholdInput}
                       onChange={(e) => setGasThresholdInput(e.target.value)}
-                      disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
+                      disabled={isViewer || device.status !== 'ONLINE' || isSubmitting || isDeviceWaitingAck(device.id)}
                       className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 font-mono focus:border-zinc-600 focus:outline-none disabled:opacity-50"
                     />
                   </div>
                 </div>
 
                 <button
-                  disabled={isViewer || isSubmitting || isDeviceWaitingAck(device.id)}
-                  onClick={() =>
-                    handleSendCommand(
-                      'UPDATE_THRESHOLD',
-                      {
-                        temp_threshold: parseFloat(tempThresholdInput),
-                        gas_threshold: parseFloat(gasThresholdInput),
-                      },
-                      'Đổi ngưỡng cảm biến'
-                    )
-                  }
-                  className="w-full py-2 px-3 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-100 font-semibold text-xs border border-zinc-700 transition-colors font-mono"
+                  disabled={isViewer || device.status !== 'ONLINE' || isSubmitting || isDeviceWaitingAck(device.id)}
+                  onClick={handleUpdateThresholds}
+                  className="w-full py-2 px-3 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-100 font-semibold text-xs border border-zinc-700 transition-colors font-mono"
                 >
-                  Gửi lệnh đổi ngưỡng tới phần cứng
+                  Lưu & Gửi lệnh đổi ngưỡng tới phần cứng
                 </button>
               </div>
 

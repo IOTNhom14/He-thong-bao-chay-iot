@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.core.database import supabase
-from app.core.security import create_access_token, get_current_user, verify_password
+from app.core.security import create_access_token, get_current_user, verify_password, write_audit_log
 from app.schemas.user import LoginRequest
 
 router = APIRouter(prefix="/auth", tags=["Xác Thực Tài Khoản (Auth)"])
 
 @router.post("/login", summary="Đăng nhập hệ thống")
-def login(payload: LoginRequest):
+def login(payload: LoginRequest, request: Request):
     identifier = (payload.email or payload.username or "").strip().lower()
     password = payload.password
 
@@ -16,7 +17,7 @@ def login(payload: LoginRequest):
             detail="Vui lòng cung cấp đầy đủ thông tin đăng nhập và mật khẩu",
         )
 
-    # 1. Tra cứu người dùng từ bảng public.users theo username hoặc email
+    matched_user_id: Optional[str] = None
     try:
         email = identifier if "@" in identifier else f"{identifier}@firealert.iot"
         user_rec = (
@@ -28,18 +29,18 @@ def login(payload: LoginRequest):
         )
         if user_rec.data:
             user_data = user_rec.data[0]
+            matched_user_id = str(user_data["id"])
 
             if not user_data.get("is_active", True):
+                write_audit_log(matched_user_id, f"LOGIN_FAILED:{identifier}:INACTIVE", request)
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Tài khoản đã bị vô hiệu hóa bởi quản trị viên",
                 )
 
-            # Xác thực mật khẩu qua bcrypt hash
             pwd_hash = user_data.get("password_hash")
             is_valid = verify_password(password, pwd_hash) if pwd_hash else False
 
-            # Fallback Supabase Auth nếu chưa có bcrypt hash
             if not is_valid:
                 try:
                     auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -49,7 +50,7 @@ def login(payload: LoginRequest):
                     pass
 
             if is_valid:
-                user_id = str(user_data["id"])
+                user_id = matched_user_id
                 role = user_data.get("role", "VIEWER")
                 username = user_data.get("username") or identifier.split("@")[0]
                 token = create_access_token({
@@ -57,6 +58,7 @@ def login(payload: LoginRequest):
                     "email": user_data.get("email"),
                     "role": role,
                 })
+                write_audit_log(user_id, f"LOGIN_SUCCESS:{username}", request)
                 return {
                     "success": True,
                     "message": "Đăng nhập thành công",
@@ -74,6 +76,7 @@ def login(payload: LoginRequest):
     except Exception as exc:
         print(f"[AUTH LOGIN] Lỗi xử lý đăng nhập: {exc}")
 
+    write_audit_log(matched_user_id or identifier[:100], f"LOGIN_FAILED:{identifier}", request)
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Tài khoản hoặc mật khẩu không chính xác"

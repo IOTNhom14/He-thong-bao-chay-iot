@@ -392,6 +392,62 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  const [editingThresholdDevice, setEditingThresholdDevice] = useState<DeviceItem | null>(null);
+  const [editTempThreshold, setEditTempThreshold] = useState<string>('55');
+  const [editGasThreshold, setEditGasThreshold] = useState<string>('400');
+  const [isSavingDeviceThreshold, setIsSavingDeviceThreshold] = useState<boolean>(false);
+
+  const openEditThresholdModal = (device: DeviceItem) => {
+    if (device.status !== 'ONLINE') {
+      showError(
+        'Thiết bị đang ngoại tuyến',
+        `Thiết bị ${device.id} đang ở trạng thái ${device.status}. Chỉ có thể sửa ngưỡng khi thiết bị ONLINE.`
+      );
+      return;
+    }
+    setEditingThresholdDevice(device);
+    setEditTempThreshold(String(device.temp_threshold ?? 55));
+    setEditGasThreshold(String(device.gas_threshold ?? 400));
+  };
+
+  const handleSaveDeviceThreshold = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingThresholdDevice) return;
+
+    const tempVal = parseFloat(editTempThreshold);
+    const gasVal = parseFloat(editGasThreshold);
+
+    if (Number.isNaN(tempVal) || tempVal <= 20 || tempVal > 100) {
+      showError('Ngưỡng nhiệt độ không hợp lệ', 'Ngưỡng nhiệt độ phải nằm trong khoảng (20°C, 100°C].');
+      return;
+    }
+    if (Number.isNaN(gasVal) || gasVal <= 50 || gasVal > 2000) {
+      showError('Ngưỡng khói/gas không hợp lệ', 'Ngưỡng khói/gas phải nằm trong khoảng (50 PPM, 2000 PPM].');
+      return;
+    }
+
+    setIsSavingDeviceThreshold(true);
+    try {
+      const result = await DeviceApi.updateThresholds(editingThresholdDevice.id, {
+        temp_threshold: tempVal,
+        smoke_threshold: gasVal,
+      });
+      showSuccess(
+        'Cập nhật ngưỡng thiết bị thành công',
+        `${editingThresholdDevice.id}: ${tempVal}°C · ${gasVal} PPM (Mã lệnh: ${result.command_id}).`
+      );
+      setEditingThresholdDevice(null);
+      fetchDevices();
+    } catch (err: any) {
+      showError(
+        'Cập nhật ngưỡng thất bại',
+        err.response?.data?.detail || err.response?.data?.error || err.message
+      );
+    } finally {
+      setIsSavingDeviceThreshold(false);
+    }
+  };
+
   // ==========================================
   // TAB 3: NGƯỠNG TOÀN CỤC
   // ==========================================
@@ -884,6 +940,19 @@ export const AdminPage: React.FC = () => {
                                 </button>
                               )}
                               <button
+                                onClick={() => openEditThresholdModal(dev)}
+                                disabled={dev.status !== 'ONLINE'}
+                                className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-200 border border-zinc-700 text-xs transition-colors flex items-center gap-1"
+                                title={
+                                  dev.status === 'ONLINE'
+                                    ? 'Sửa ngưỡng nhiệt độ và khói/gas của thiết bị'
+                                    : `Thiết bị đang ${dev.status}, chỉ có thể sửa ngưỡng khi ONLINE`
+                                }
+                              >
+                                <Sliders size={12} />
+                                <span>Sửa ngưỡng</span>
+                              </button>
+                              <button
                                 onClick={() => handleProvisionDevice(dev)}
                                 className="px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 text-sky-300 border border-sky-800 text-xs transition-colors"
                                 title="Gửi lại lệnh cấp phát tới ESP32 nguồn"
@@ -1039,13 +1108,21 @@ export const AdminPage: React.FC = () => {
                     <option value="ALL">Tất cả hành động</option>
                     <option value="LOGIN_SUCCESS">LOGIN_SUCCESS (Đăng nhập thành công)</option>
                     <option value="LOGIN_FAILED">LOGIN_FAILED (Đăng nhập thất bại)</option>
-                    <option value="COMMAND_SENT">COMMAND_SENT (Gửi lệnh điều khiển)</option>
-                    <option value="THRESHOLD_CHANGED">THRESHOLD_CHANGED (Đổi ngưỡng)</option>
-                    <option value="USER_CREATED">USER_CREATED (Tạo người dùng)</option>
-                    <option value="USER_DELETED">USER_DELETED (Xóa người dùng)</option>
-                    <option value="ALERT_ACKNOWLEDGED">ALERT_ACKNOWLEDGED (Xử lý cảnh báo)</option>
-                    <option value="DEVICE_CREATED">DEVICE_CREATED (Thêm thiết bị)</option>
-                    <option value="DEVICE_DECOMMISSIONED">DEVICE_DECOMMISSIONED (Thu hồi)</option>
+                    <option value="SEND_COMMAND">SEND_COMMAND (Gửi lệnh điều khiển)</option>
+                    <option value="UPDATE_THRESHOLDS">UPDATE_THRESHOLDS (Đổi ngưỡng cảnh báo)</option>
+                    <option value="ACK_ALERT">ACK_ALERT (Xác nhận xử lý cảnh báo)</option>
+                    <option value="CREATE_USER">CREATE_USER (Tạo người dùng)</option>
+                    <option value="UPDATE_ROLE">UPDATE_ROLE (Đổi vai trò người dùng)</option>
+                    <option value="STATUS_USER">STATUS_USER (Khóa / Mở khóa tài khoản)</option>
+                    <option value="DELETE_USER">DELETE_USER (Xóa người dùng)</option>
+                    <option value="ASSIGN_DEVICE">ASSIGN_DEVICE (Gán thiết bị cho user)</option>
+                    <option value="REMOVE_DEVICE">REMOVE_DEVICE (Hủy gán thiết bị)</option>
+                    <option value="ONBOARD_DEVICE">ONBOARD_DEVICE (Thêm thiết bị mới)</option>
+                    <option value="CHANGE_STATUS">CHANGE_STATUS (Đổi trạng thái thiết bị)</option>
+                    <option value="DEVICE_DECOMMISSIONED">DECOMMISSIONED (Thu hồi thiết bị)</option>
+                    <option value="DELETE_DEVICE_LINK">DELETE_DEVICE_LINK (Xóa liên kết thiết bị)</option>
+                    <option value="LINK_CAMERA">CAMERA (Gán / Gỡ camera)</option>
+                    <option value="PROVISION_DEVICE">PROVISION_DEVICE (Cấp phát lại ESP32)</option>
                   </select>
                 </div>
 
@@ -1139,9 +1216,14 @@ export const AdminPage: React.FC = () => {
                         <td className="py-2 px-3 whitespace-nowrap">
                           <span
                             className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
-                              log.action.includes('SUCCESS') || log.action.includes('CREATED')
+                              log.action.includes('SUCCESS') ||
+                              log.action.includes('CREATE') ||
+                              log.action.includes('ONBOARD') ||
+                              log.action.includes('ACK')
                                 ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                                : log.action.includes('FAILED') || log.action.includes('DELETED')
+                                : log.action.includes('FAILED') ||
+                                  log.action.includes('DELETE') ||
+                                  log.action.includes('DECOMMISSION')
                                 ? 'bg-red-950 text-red-300 border-red-800'
                                 : 'bg-zinc-900 text-zinc-300 border-zinc-700'
                             }`}
@@ -1600,6 +1682,83 @@ export const AdminPage: React.FC = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* MODAL 5: SỬA NGƯỠNG CẢNH BÁO CHO TỪNG THIẾT BỊ                    */}
+      {/* ================================================================= */}
+      {editingThresholdDevice && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#111318] border border-zinc-800 rounded-md p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+              <h3 className="text-sm font-bold text-zinc-100 uppercase tracking-wide flex items-center gap-2">
+                <Sliders size={15} className="text-zinc-400" />
+                <span>Sửa ngưỡng · {editingThresholdDevice.id}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingThresholdDevice(null)}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="text-xs text-zinc-400">
+              Thiết bị: <strong className="text-zinc-200">{editingThresholdDevice.name}</strong> ({editingThresholdDevice.location})
+            </div>
+
+            <form onSubmit={handleSaveDeviceThreshold} className="space-y-3 text-xs font-mono">
+              <div>
+                <label className="text-zinc-400 block mb-1">Ngưỡng nhiệt độ (°C) · Giới hạn (20 - 100):</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="20.5"
+                  max="100"
+                  required
+                  value={editTempThreshold}
+                  onChange={(e) => setEditTempThreshold(e.target.value)}
+                  disabled={isSavingDeviceThreshold}
+                  className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 focus:border-zinc-600 focus:outline-none disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label className="text-zinc-400 block mb-1">Ngưỡng khói / khí Gas (PPM) · Giới hạn (50 - 2000):</label>
+                <input
+                  type="number"
+                  step="10"
+                  min="51"
+                  max="2000"
+                  required
+                  value={editGasThreshold}
+                  onChange={(e) => setEditGasThreshold(e.target.value)}
+                  disabled={isSavingDeviceThreshold}
+                  className="w-full bg-[#090a0f] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-100 focus:border-zinc-600 focus:outline-none disabled:opacity-50"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 font-sans">
+                <button
+                  type="button"
+                  onClick={() => setEditingThresholdDevice(null)}
+                  disabled={isSavingDeviceThreshold}
+                  className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold disabled:opacity-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingDeviceThreshold}
+                  className="px-3 py-1.5 rounded bg-red-700 hover:bg-red-600 text-white font-semibold transition-colors border border-red-600 disabled:opacity-50"
+                >
+                  {isSavingDeviceThreshold ? 'Đang lưu & gửi lệnh...' : 'Lưu & Gửi xuống ESP32'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
